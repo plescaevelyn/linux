@@ -9,7 +9,6 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/of_device.h>
 
 #include <linux/iio/iio.h>
 
@@ -17,8 +16,6 @@
 #define AXI_PWM_LED_CHANNEL_1		0x0046C
 #define AXI_PWM_LED_CHANNEL_2		0x004AC
 #define AXI_PWM_LED_CHANNEL_3		0x004EC
-#define AXI_PWM_LED_CHANNEL_4		0x0052C
-#define AXI_PWM_LED_CHANNEL_5		0x0056C
 
 static struct axi_pwm_led_state {
 	void __iomem	*regs;
@@ -77,8 +74,6 @@ static const struct iio_chan_spec axi_pwm_led_channels[] = {
 	AXI_PWM_LED_CHANNEL(1, AXI_PWM_LED_CHANNEL_1),
 	AXI_PWM_LED_CHANNEL(2, AXI_PWM_LED_CHANNEL_2),
 	AXI_PWM_LED_CHANNEL(3, AXI_PWM_LED_CHANNEL_3),
-	AXI_PWM_LED_CHANNEL(4, AXI_PWM_LED_CHANNEL_4),
-	AXI_PWM_LED_CHANNEL(5, AXI_PWM_LED_CHANNEL_5),
 };
 
 static int axi_pwm_led_probe(struct platform_device *pdev)
