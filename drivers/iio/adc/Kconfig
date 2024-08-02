@@ -22,9 +22,18 @@ config AD_SIGMA_DELTA
 	select IIO_TRIGGERED_BUFFER
 
 config AD4134
+	tristate "Analog Device IIO EMU ADC Driver"
+	depends on SPI
+	help
+	  Say yes here to build support for Analog Devices IIO EMU ADC.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called iio-adc-emu.
+
+config IIO_ADC_EMU
 	tristate "Analog Device AD4134 ADC Driver"
 	depends on SPI
-	select REGMAP_SPI
+	select SPI_ADI_EMU
 	help
 	  Say yes here to build support for Analog Devices AD4134-8 SPI analog
 	  to digital converters (ADC).
