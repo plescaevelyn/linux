@@ -6,6 +6,7 @@
 
 config IIO_ALL_ADI_DRIVERS
 	tristate "Build all Analog Devices IIO Drivers"
+	imply AD5592R_S
 	imply IIO_BUFFER
 	imply IIO_SW_DEVICE
 	imply IIO_SW_TRIGGER

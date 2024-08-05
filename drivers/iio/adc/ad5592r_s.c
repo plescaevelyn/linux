@@ -8,7 +8,64 @@
 
  #include <linux/iio/iio.h>
 
- static const struct iio_info ad5592r_info = {};
+static int ad5592r_read_raw(struct iio_dev* indio_dev, 
+                            struct iio_chan_spec const *chan, 
+                            int* val,
+                            int* val2,
+                            long mask)
+{
+    switch (mask)
+    {
+        case IIO_CHAN_INFO_ENABLE:
+        {
+            *val = 0;
+
+            return IIO_VAL_INT;
+        }
+        case IIO_CHAN_INFO_RAW:
+        {
+            if (chan->channel == 1)
+            {
+                *val = 87;
+            }
+            else
+            {
+                *val = 420;
+            }
+
+            return IIO_VAL_INT;
+        }
+        default:
+        {
+            return -EINVAL;
+        }
+    }
+
+    return -EINVAL;
+}
+
+static const struct iio_info ad5592r_info = {
+    .read_raw = &ad5592r_read_raw,
+};
+
+static const struct iio_chan_spec ad5592r_channels[] = {
+    {
+        .type = IIO_VOLTAGE,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        //.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        //.output = 0,
+        .indexed = 1,
+        .channel = 0,
+    }, 
+    {
+        .type = IIO_VOLTAGE,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        //.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        //.output = 0,
+        .indexed = 1,
+        .channel = 1,
+    }
+};
 
 static int ad5592r_s_probe(struct spi_device *spi)
 {
@@ -23,6 +80,8 @@ static int ad5592r_s_probe(struct spi_device *spi)
 
     indio_dev->name = "ad5592r_s";
     indio_dev->info = &ad5592r_info;
+    indio_dev->channels = ad5592r_channels;
+    indio_dev->num_channels = ARRAY_SIZE(ad5592r_channels);
 
     return devm_iio_device_register(&spi->dev, indio_dev);
 }
@@ -34,7 +93,7 @@ static struct spi_driver ad5592r_s_driver = {
     .probe = ad5592r_s_probe,
 };
 
-module_spi_driver(ad5592r_s_driver)
+module_spi_driver(ad5592r_s_driver);
 
 MODULE_AUTHOR("Cristea Tudor");
 MODULE_DESCRIPTION("Analog Devices ADC AD5592R");
