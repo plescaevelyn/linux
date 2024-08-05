@@ -6,5 +6,10 @@
 		compatible = "adi,spi-adi-emu";
 		#address-cells = <1>;
 		#size-cells = <0>;
+		iio-adc-emu@0{
+			compatible = "iio-adc-emu";
+			reg = <0>;
+			spi-max-frequency = <1000000>;
+		};
 	};
 };
