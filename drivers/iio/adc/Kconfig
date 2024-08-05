@@ -47,7 +47,7 @@ config AD400X
 
 	  
 config AD5592R_S
-	tristate "Analog Devices  ad5592r_s ADC Driver"
+	tristate "Analog Devices  AD5592R_S ADC Driver"
 	depends on SPI
 	help
 	  Say yes here to build support for Analog Devices AD5592R_S.
