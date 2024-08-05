@@ -21,6 +21,14 @@ config AD_SIGMA_DELTA
 	select IIO_BUFFER
 	select IIO_TRIGGERED_BUFFER
 
+config AD5592R_S
+	tristate "Analog Device AD5592R_S ADC Driver"
+	depends on SPI
+	help
+	  To compile this driver as a module, choose M here: the module will be
+	  called ad5592r_s.
+
+
 config AD4134
 	tristate "Analog Device AD4134 ADC Driver"
 	depends on SPI
