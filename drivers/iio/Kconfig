@@ -22,6 +22,15 @@ if IIO_BUFFER
 	source "drivers/iio/buffer/Kconfig"
 endif # IIO_BUFFER
 
+config AD5592RS
+	tristate "Analog Devices AD5592RS Driver"
+	depends on SPI
+	help
+	  Say yes here to build support for Analog Devices AD5592RS.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called AD5592RS. 
+
 config IIO_CONFIGFS
 	tristate "Enable IIO configuration via configfs"
 	select CONFIGFS_FS
