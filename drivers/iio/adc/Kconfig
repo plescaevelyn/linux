@@ -32,6 +32,15 @@ config AD4134
 	  To compile this driver as a module, choose M here: the module will be
 	  called ad4134.
 
+config AD5592r_s
+	tristate "Analog Device IIO ADC Driver"
+	depends on SPI
+	help
+	  Say yes here to build support for Analog Devices IIO EMU ADC.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called AD5592r_s.	
+
 config AD400X
 	tristate "Analog Device AD400X ADC Driver"
 	depends on SPI_MASTER
