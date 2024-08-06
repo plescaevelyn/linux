@@ -8,18 +8,74 @@
 
 #include <linux/iio/iio.h>
 
+struct iio_adc_emu_state {
+    bool en;
+    int chan0;
+    int chan1;
+    int chan2;
+    int chan3;
+    int chan4;
+    int chan5;
+    int chan6;
+    int chan7;
+};
+
 struct iio_chan_spec const iio_adc_emu_chans[]={
     {
         .type = IIO_VOLTAGE,
         .indexed = 1,
         .channel = 0,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
     },
     {
         .type = IIO_VOLTAGE,
         .indexed = 1,
         .channel = 1,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 2,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 3,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 4,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 5,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 6,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+    },
+    {
+        .type = IIO_VOLTAGE,
+        .indexed = 1,
+        .channel = 7,
+        .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
     }
 };
 
@@ -30,12 +86,42 @@ static int iio_adc_emu_read_raw(struct iio_dev *indio_dev,
         int *val2,
         long mask)
         {
+            struct iio_adc_emu_state *st = iio_priv(indio_dev);
             switch(mask){
                 case IIO_CHAN_INFO_RAW:
-                    if(chan->channel)
-                        *val = 87;
-                    else
-                        *val = 420;
+                    if(st->en){
+                        switch(chan->channel){
+                            case 0:
+                                *val = st->chan0;
+                                return IIO_VAL_INT;
+                            case 1:
+                                *val = st->chan1;
+                                return IIO_VAL_INT;
+                            case 2:
+                                *val = st->chan2;
+                                return IIO_VAL_INT;
+                            case 3:
+                                *val = st->chan3;
+                                return IIO_VAL_INT;
+                            case 4:
+                                *val = st->chan4;
+                                return IIO_VAL_INT;
+                            case 5:
+                                *val = st->chan5;
+                                return IIO_VAL_INT;
+                            case 6:
+                                *val = st->chan6;
+                                return IIO_VAL_INT;
+                            case 7:
+                                *val = st->chan7;
+                                return IIO_VAL_INT;
+                        }
+                    }
+                    else{
+                        return -EINVAL;
+                    }
+                case IIO_CHAN_INFO_ENABLE:
+                    *val = st->en;
                     return IIO_VAL_INT;
             default:
                 return -EINVAL;
@@ -43,9 +129,54 @@ static int iio_adc_emu_read_raw(struct iio_dev *indio_dev,
             return -EINVAL;
         };
 
+static int iio_adc_emu_write_raw(struct iio_dev *indio_dev,
+		struct iio_chan_spec const *chan,
+        int val,
+        int val2,
+        long mask)
+        {
+            struct iio_adc_emu_state *st = iio_priv(indio_dev);
+            
+            switch(mask){
+                case IIO_CHAN_INFO_ENABLE:
+                    st->en = val;
+                    return 0;
+                case IIO_CHAN_INFO_RAW:
+                    switch(chan->channel){
+                        case 0:
+                            st->chan0 = val;
+                            return 0;
+                        case 1:
+                            st->chan1 = val;
+                            return 0;
+                        case 2:
+                            st->chan2 = val;
+                            return 0;
+                        case 3:
+                            st->chan3 = val;
+                            return 0;
+                        case 4:
+                            st->chan4 = val;
+                            return 0;
+                        case 5:
+                            st->chan5 = val;
+                            return 0;
+                        case 6:
+                            st->chan6 = val;
+                            return 0;
+                        case 7:
+                            st->chan7 = val;
+                            return 0;
+                    }
+            default:
+                return -EINVAL;
+            }
+            return -EINVAL;
+        };
 
 static const struct iio_info ad5592r_s_info = {
     .read_raw = &iio_adc_emu_read_raw,
+    .write_raw = &iio_adc_emu_write_raw,
 
 };
 
@@ -53,6 +184,7 @@ static const struct iio_info ad5592r_s_info = {
 static int ad5592r_s_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
+    struct iio_adc_emu_state *st;
 	// int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, 0);
@@ -63,6 +195,11 @@ static int ad5592r_s_probe(struct spi_device *spi)
 	indio_dev->info = &ad5592r_s_info;
     indio_dev->channels = iio_adc_emu_chans;
     indio_dev->num_channels = ARRAY_SIZE(iio_adc_emu_chans);
+
+    st = iio_priv(indio_dev);
+    st->en = 0;
+    st->chan0 = 0;
+    st->chan1 = 0;
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
