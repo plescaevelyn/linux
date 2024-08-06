@@ -9,74 +9,92 @@
 #include <linux/module.h>
 #include <linux/iio/iio.h>
 
+struct iio_adc_ad5592rs_state {
+	bool en;
+	int chan0, chan1, chan2, chan3, chan4, chan5;
+};
+
 struct iio_chan_spec const iio_adc_ad559rs_chans[] = {
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 0,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 1,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 2,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 3,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 4,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 	{
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 5,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	}
 };
 
-int iio_adc_ad559rs_read_raw(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan, int *val,
-			     int *val2, long mask)
+int iio_adc_ad5592rs_read_raw(struct iio_dev *indio_dev,
+			      struct iio_chan_spec const *chan, int *val,
+			      int *val2, long mask)
 {
+	struct iio_adc_ad5592rs_state *st = iio_priv(indio_dev);
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		switch (chan->channel) {
-		case 1:
-			*val = 1000;
-			break;
-		case 2:
-			*val = 2000;
-			break;
-		case 3:
-			*val = 3000;
-			break;
-		case 4:
-			*val = 4000;
-			break;
-		case 5:
-			*val = 5000;
-			break;
-		default:
-			*val = 100;
-			break;
+		if (st->en) {
+			switch (chan->channel) {
+			case 1:
+				*val = st->chan1;
+				break;
+			case 2:
+				*val = st->chan2;
+				break;
+			case 3:
+				*val = st->chan3;
+				break;
+			case 4:
+				*val = st->chan4;
+				break;
+			case 5:
+				*val = st->chan5;
+				break;
+			default:
+				*val = st->chan0;
+				break;
+			}
+
+			return IIO_VAL_INT;
+		} else {
+			return -EINVAL;
 		}
-
+	case IIO_CHAN_INFO_ENABLE:
+		*val = st->en;
 		return IIO_VAL_INT;
-
 	default:
 		return -EINVAL;
 	};
@@ -84,16 +102,58 @@ int iio_adc_ad559rs_read_raw(struct iio_dev *indio_dev,
 	return -EINVAL;
 }
 
+int iio_adc_ad5592rs_write_raw(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan, int val,
+			       int val2, long mask)
+{
+	struct iio_adc_ad5592rs_state *st = iio_priv(indio_dev);
+	switch (mask) {
+	case IIO_CHAN_INFO_ENABLE:
+		st->en = val;
+		return 0;
+	case IIO_CHAN_INFO_RAW:
+		if (st->en) {
+			switch (chan->channel) {
+			case 1:
+				st->chan1 = val;
+				break;
+			case 2:
+				st->chan2 = val;
+				break;
+			case 3:
+				st->chan3 = val;
+				break;
+			case 4:
+				st->chan4 = val;
+				break;
+			case 5:
+				st->chan5 = val;
+				break;
+			default:
+				st->chan0 = val;
+				break;
+			}
+			return 0;
+		} else {
+			return -EINVAL;
+		}
+	default:
+		return -EINVAL;
+	}
+}
+
 static const struct iio_info ad5592rs_info = {
-	.read_raw = &iio_adc_ad559rs_read_raw,
+	.read_raw = &iio_adc_ad5592rs_read_raw,
+	.write_raw = &iio_adc_ad5592rs_write_raw,
+
 };
 
 static int ad5592rs_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
-	//int ret;
+	struct iio_adc_ad5592rs_state *st;
 
-	indio_dev = devm_iio_device_alloc(&spi->dev, 0);
+	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*st));
 	if (!indio_dev) {
 		return -ENOMEM;
 	}
@@ -102,13 +162,21 @@ static int ad5592rs_probe(struct spi_device *spi)
 	indio_dev->channels = iio_adc_ad559rs_chans;
 	indio_dev->num_channels = ARRAY_SIZE(iio_adc_ad559rs_chans);
 
+	st = iio_priv(indio_dev);
+	st->en = 0;
+	st->chan0 = 0;
+	st->chan1 = 0;
+	st->chan2 = 0;
+	st->chan3 = 0;
+	st->chan4 = 0;
+	st->chan5 = 0;
+
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
 
-static struct spi_driver ad5592rs_driver = {
+static struct spi_driver ad5592rs_driver = { 
 	.driver = { .name = "ad5592r_s" },
-	.probe = ad5592rs_probe
-};
+	.probe = ad5592rs_probe };
 module_spi_driver(ad5592rs_driver);
 
 MODULE_AUTHOR("Hojda Matei <hojdamatei019@gmail.com>");
