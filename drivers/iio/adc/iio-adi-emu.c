@@ -2,6 +2,7 @@
 #include <linux/spi/spi.h>
 #include <linux/iio/iio.h>
 #include <linux/bitfield.h>
+#include <asm/unaligned.h>
 
 #define IIO_ADC_EMU_READ_MASK       BIT(7)
 #define IIO_ADC_EMU_VALUE_MASK      GENMASK(7,0)
@@ -142,15 +143,21 @@ static int adi_emu_spi_read(struct adi_emu_state *state,
 static int adi_emu_spi_write(struct adi_emu_state *state,
     u8 reg_addr,
     u8 write_val) {
-        u16 tx = 0;
+        u16 tx = 0, msg = 0;
         struct spi_transfer xfer = {
             .rx_buf = NULL,
             .tx_buf = &tx,
             .len = 2,
         };
 
-        tx = FIELD_PREP(IIO_ADC_ADDR_WRITE_MASK, reg_addr) |
+        msg = FIELD_PREP(IIO_ADC_ADDR_WRITE_MASK, reg_addr) |
             FIELD_PREP(IIO_ADC_EMU_VALUE_MASK, write_val);
+        
+        dev_info(&state->spi->dev, "msg = 0x%X", msg);
+
+        put_unaligned_be16(msg, &tx);
+        dev_info(&state->spi->dev, "tx = 0x%X", tx);
+
         int ret = spi_sync_transfer(state->spi, &xfer, 1);
         if (ret) {
             dev_err(&state->spi->dev, "SPI sync transfer failed on write");
