@@ -3,15 +3,28 @@
  * Copyright (C) 2024 Analog Devices, Inc.
  */
 
+#include <linux/bitfield.h>
 #include <linux/spi/spi.h>
 #include <linux/module.h>
 #include <linux/iio/iio.h>
+#include <asm/unaligned.h>
+
+
+
+#define IIO_ADC_EMU_READ_MSK BIT(7)
+#define IIO_ADC_EMU_READ_ADDR_MSK GENMASK(6, 0)
+
+#define IIO_ADC_EMU_WRITE_ADDR_MSK GENMASK(14, 8)
+#define IIO_ADC_EMU_WRITE_DATA_MSK GENMASK(7, 0)
 
 //necesara pentru stocarea datelor interne din cadrul chip-ului
 struct iio_adc_emu_state {
     bool en;
     int chan0;
     int chan1;
+
+    //structura pentru spi
+    struct spi_device *spi;
 };
 
 
@@ -33,6 +46,69 @@ struct iio_chan_spec const iio_adc_emu_chans[] = {
 };
 
 //static pentru ca sunt functii interne
+static int iio_adc_emu_spi_read(struct iio_adc_emu_state *st, u8 *readval, u8 reg) {
+    u8 tx;
+    u8 rx;
+    int ret;
+    
+    struct spi_transfer xfer[] = {
+        {
+            //primul transfer -> adresa 
+            //NULL pentru ca nu se returneaza nimic initial la transfer
+            .rx_buf = NULL,
+            .tx_buf = &tx,
+            .len = 1,
+        },
+        {
+            //al doilea transfer -> citirea datelor 
+            .rx_buf = &rx,
+            .tx_buf = NULL,
+            .len = 1,
+        }
+    };
+
+    tx = IIO_ADC_EMU_READ_MSK | FIELD_PREP(IIO_ADC_EMU_READ_ADDR_MSK, reg); 
+
+    ret = spi_sync_transfer(st->spi, xfer, 2);
+    if (ret) {
+        dev_err(&st->spi->dev, "Spi sync transfer failed during read");
+        return ret;
+    }
+
+    *readval = rx;
+    return 0;
+}
+
+static int iio_adc_emu_spi_write(struct iio_adc_emu_state *st, u8 reg, u8 writeval) {
+    //u8 tx[2];
+    u16 tx = 0;
+    u16 msg = 0;
+    int ret;
+    
+    struct spi_transfer xfer = {
+            .rx_buf = NULL,
+            .tx_buf = &msg,
+            .len = 2,
+    };
+
+    //bit-ul de write e 0, deci nu e necesara o masca, DAR e obligatorie initializarea lui tx cu 0
+    tx = FIELD_PREP(IIO_ADC_EMU_WRITE_ADDR_MSK, reg) | 
+         FIELD_PREP(IIO_ADC_EMU_WRITE_DATA_MSK, writeval); 
+
+    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+
+    put_unaligned_be16(tx, &msg);
+    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+
+    ret = spi_sync_transfer(st->spi, &xfer, 1);
+    if (ret) {
+        dev_err(&st->spi->dev, "Spi sync transfer failed during write");
+        return ret;
+    }
+
+    return 0;
+}
+
 static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
 	    struct iio_chan_spec const *chan,
 		int val,
@@ -101,11 +177,26 @@ static int iio_adc_emu_read_raw (struct iio_dev *indio_dev,
     return -EINVAL;
 }
 
+static int iio_adc_emu_reg_access(struct iio_dev *indio_dev,
+		unsigned reg, 
+        unsigned writeval,
+	    unsigned *readval) {
+
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+    if (readval) {
+        return iio_adc_emu_spi_read(st, (u8*)readval, reg);
+    }
+    
+    return iio_adc_emu_spi_write(st, reg, writeval);
+
+    //return (readval != NULL) ? iio_adc_emu_spi_read(st, (u8*)readval, reg) : iio_adc_emu_spi_write(st, reg, writeval);
+}
 
 
 static const struct iio_info iio_adc_emu_info = {
    .read_raw = &iio_adc_emu_read_raw,
    .write_raw = &iio_adc_emu_write_raw,
+   .debugfs_reg_access = &iio_adc_emu_reg_access,
 };
 
 static int iio_adc_emu_probe(struct spi_device *spi) {
@@ -130,6 +221,7 @@ static int iio_adc_emu_probe(struct spi_device *spi) {
     st->en = 0;   
     st->chan0 = 0;
     st->chan1 = 0; 
+    st->spi = spi;
 
     return devm_iio_device_register(&spi->dev, indio_dev);
 }
