@@ -9,5 +9,6 @@
         compatible = "ad5592rs";
         reg = <0>;
         spi-max-frequency = <1000000>;
+        spi-cpol;
     };
 };
