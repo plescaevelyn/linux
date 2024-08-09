@@ -1,36 +1,21 @@
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/iio/iio.h>
+#include <linux/bitfield.h>
 
-static int adi_emu_probe(struct spi_device*);
-static int adi_emu_read_raw(struct iio_dev*, struct iio_chan_spec const*, int*, int*, long);
-static int adi_emu_write_raw(struct iio_dev*, struct iio_chan_spec const*, int, int, long);
+#define IIO_ADC_EMU_READ_MASK       BIT(7)
+#define IIO_ADC_EMU_VALUE_MASK      GENMASK(7,0)
+#define IIO_ADC_ADDR_READ_MASK      GENMASK(6,0)
+#define IIO_ADC_ADDR_WRITE_MASK     GENMASK(14,8)
 
 /**
  * State structure
  */
 struct adi_emu_state {
     bool enable;
-};
-
-/**
- * IIO_INFO structure
- */
-static const struct iio_info adi_emu_info = {
-    .read_raw = &adi_emu_read_raw,
-    .write_raw = &adi_emu_write_raw,
-};
-
-
-/**
- * Driver structure
- */
-static struct spi_driver adi_emu_driver =
-{
-    .driver = {
-        .name = "iio-adi-emu",
-    },
-    .probe = adi_emu_probe
+    struct spi_device *spi;
+    int channel0;
+    int channel1;
 };
 
 /**
@@ -51,34 +36,8 @@ static const struct iio_chan_spec adi_emu_channels[] = {
         .output = 0,
         .indexed = 1,
         .channel = 1,
-    }
-};
-
-/**
- * Probe function executed when the devicetree is parsed
- * parameter spi - the parent spi controller
- * returns 0 on success or negative number on error  
- */
-static int adi_emu_probe(struct spi_device *spi) {
-    struct iio_dev *indio_dev;
-    struct adi_emu_state *state;
-
-    indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*state));
-    if (!indio_dev) {
-        return -ENOMEM; // Error: Not enogh memory!
-    }
-
-    state = iio_priv(indio_dev);
-    state->enable = false;
-
-    indio_dev->name = "iio-adi-emu";
-    indio_dev->info = &adi_emu_info;
-    indio_dev->channels = adi_emu_channels;
-    indio_dev->num_channels = ARRAY_SIZE(adi_emu_channels);
-
-
-    return devm_iio_device_register(&spi->dev, indio_dev);
-}
+    }};
+ 
 
 /**
  * Function to read the raw value of the adi_emu channels
@@ -95,7 +54,7 @@ static int adi_emu_probe(struct spi_device *spi) {
 static int adi_emu_read_raw(struct iio_dev *indio_dev,
     struct iio_chan_spec const *chan,
     int *val,
-    int*val2,
+    int *val2,
     long mask) {
         struct adi_emu_state *state = iio_priv(indio_dev);
 
@@ -131,14 +90,135 @@ static int adi_emu_write_raw(struct iio_dev *indio_dev,
         struct adi_emu_state *state = iio_priv(indio_dev);
         
         switch (mask) {
+            case IIO_CHAN_INFO_RAW:
+                if (chan->channel) {
+                    state->channel1 = val;
+                } else {
+                    state->channel0 = val;
+                }
+                return IIO_VAL_INT;
             case IIO_CHAN_INFO_ENABLE:
                 state->enable = val;
-                return 0;
+                return IIO_VAL_INT;
             default:
                 // Error: Invalid value for mask
                 return -EINVAL;
         }
 }
+
+/**
+ * Function to read one byte from adi_emu using SPI
+ */
+static int adi_emu_spi_read(struct adi_emu_state *state,
+    u8 reg_addr,
+    u8 *read_val) {
+        u8 tx, rx;
+        struct spi_transfer xfer[] = {
+            {
+                .rx_buf = NULL,
+                .tx_buf = &tx,
+                .len = 1,
+            }, {
+                .rx_buf = &rx,
+                .tx_buf = NULL,
+                .len = 1,
+            }
+        };
+
+        tx = IIO_ADC_EMU_READ_MASK | FIELD_PREP(IIO_ADC_ADDR_READ_MASK, reg_addr);
+        int ret = spi_sync_transfer(state->spi, xfer, 2);
+        if (ret) {
+            dev_err(&state->spi->dev, "SPI sync transfer failed on read");
+            return ret;
+        }
+
+        *read_val = rx;
+        return 0;
+}
+
+/**
+ * Function to write one byte to adi_emu using SPI
+ */
+static int adi_emu_spi_write(struct adi_emu_state *state,
+    u8 reg_addr,
+    u8 write_val) {
+        u16 tx = 0;
+        struct spi_transfer xfer = {
+            .rx_buf = NULL,
+            .tx_buf = &tx,
+            .len = 2,
+        };
+
+        tx = FIELD_PREP(IIO_ADC_ADDR_WRITE_MASK, reg_addr) |
+            FIELD_PREP(IIO_ADC_EMU_VALUE_MASK, write_val);
+        int ret = spi_sync_transfer(state->spi, &xfer, 1);
+        if (ret) {
+            dev_err(&state->spi->dev, "SPI sync transfer failed on write");
+            return ret;
+        }
+
+        return 0;
+}
+
+static int adi_emu_debugfx(struct iio_dev* indio_dev,
+    unsigned reg_addr,
+    unsigned write_val,
+    unsigned *read_val) {
+        struct adi_emu_state *state = iio_priv(indio_dev);
+
+        if (read_val) {
+            return adi_emu_spi_read(state, reg_addr, (u8 *)read_val);
+        } else {
+            return adi_emu_spi_write(state, reg_addr, write_val);
+        }
+}
+
+/**
+ * IIO_INFO structure
+ */
+static const struct iio_info adi_emu_info = {
+    .read_raw = &adi_emu_read_raw,
+    .write_raw = &adi_emu_write_raw,
+    .debugfs_reg_access = &adi_emu_debugfx,
+};
+
+/**
+ * Probe function executed when the devicetree is parsed
+ * parameter spi - the parent spi controller
+ * returns 0 on success or negative number on error  
+ */
+static int adi_emu_probe(struct spi_device *spi) {
+    struct iio_dev *indio_dev;
+    struct adi_emu_state *state;
+
+    indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*state));
+    if (!indio_dev) {
+        return -ENOMEM; // Error: Not enogh memory!
+    }
+
+    state = iio_priv(indio_dev);
+    state->enable = false;
+    state->spi = spi;
+
+    indio_dev->name = "iio-adi-emu";
+    indio_dev->info = &adi_emu_info;
+    indio_dev->channels = adi_emu_channels;
+    indio_dev->num_channels = ARRAY_SIZE(adi_emu_channels);
+
+
+    return devm_iio_device_register(&spi->dev, indio_dev);
+}
+
+/**
+ * Driver structure
+ */
+static struct spi_driver adi_emu_driver =
+{
+    .driver = {
+        .name = "iio-adi-emu",
+    },
+    .probe = adi_emu_probe
+};
 
 module_spi_driver(adi_emu_driver);
 
