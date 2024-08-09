@@ -8,11 +8,19 @@
 #include <linux/spi/spi.h>
 #include <linux/module.h>
 #include <linux/iio/iio.h>
+#include <asm/unaligned.h>
+#include <linux/bitfield.h>
+
+#define IIO_ADC_EMU_READ_MSK BIT(7)
+#define IIO_ADC_ADDR_RD_MSK GENMASK(6, 0)
+#define IIO_ADC_ADDR_WR_MSK GENMASK(14, 8)
+#define IIO_ADC_VAL_MSK GENMASK(7, 0)
 
 struct iio_adc_emu_state {
 	bool en;
 	int chan0;
 	int chan1;
+	struct spi_device *spi;
 };
 
 struct iio_chan_spec const iio_adc_emu_chans[] = {
@@ -84,16 +92,82 @@ int iio_adc_emu_write_raw(struct iio_dev *indio_dev,
 	}
 }
 
+static int iio_adc_emu_spi_read(struct iio_adc_emu_state *st, u8 *readVal,
+				u8 reg)
+{
+	u8 tx, rx;
+	int ret;
+
+	struct spi_transfer xfer[] = { {
+					       .rx_buf = NULL,
+					       .tx_buf = &tx,
+					       .len = 1,
+				       },
+				       {
+					       .rx_buf = &rx,
+					       .tx_buf = NULL,
+					       .len = 1,
+				       } };
+
+	tx = IIO_ADC_EMU_READ_MSK | FIELD_PREP(IIO_ADC_ADDR_RD_MSK, reg);
+
+	ret = spi_sync_transfer(st->spi, xfer, 2);
+	if (ret) {
+		dev_err(&st->spi->dev, "Spi sync transfer fail during read");
+		return ret;
+	}
+
+	*readVal = rx;
+
+	return 0;
+}
+
+static int iio_adc_emu_spi_write(struct iio_adc_emu_state *st, u8 writeVal,
+				 u8 reg)
+{
+	u16 tx = 0;
+	u16 msg = 0;
+
+	struct spi_transfer xfer = {
+		.rx_buf = NULL,
+		.tx_buf = &msg,
+		.len = 2,
+	};
+
+	tx = FIELD_PREP(IIO_ADC_ADDR_WR_MSK, reg) |
+	     FIELD_PREP(IIO_ADC_VAL_MSK, writeVal);
+
+	dev_info(&st->spi->dev, "tx=0x%x", tx);
+
+	put_unaligned_be16(tx, &msg);
+	dev_info(&st->spi->dev, "msg=0x%x", msg);
+
+	return spi_sync_transfer(st->spi, &xfer, 1);
+}
+
+int iio_adc_emu_debugfs(struct iio_dev *indio_dev, unsigned reg,
+			unsigned writeval, unsigned *readval)
+{
+	struct iio_adc_emu_state *st = iio_priv(indio_dev);
+
+	if (readval) {
+		return iio_adc_emu_spi_read(st, (u8 *)readval, reg);
+	}
+
+	return iio_adc_emu_spi_write(st, writeval, reg);
+}
+
 static const struct iio_info iio_adc_emu_info = {
 	.read_raw = &iio_adc_emu_read_raw,
 	.write_raw = &iio_adc_emu_write_raw,
+	.debugfs_reg_access = &iio_adc_emu_debugfs,
+
 };
 
 static int iio_adc_emu_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
 	struct iio_adc_emu_state *st;
-	//int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*st));
 	if (!indio_dev) {
@@ -108,6 +182,7 @@ static int iio_adc_emu_probe(struct spi_device *spi)
 	st->en = 0;
 	st->chan0 = 0;
 	st->chan1 = 0;
+	st->spi = spi;
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
