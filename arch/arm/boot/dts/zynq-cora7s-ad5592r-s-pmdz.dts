@@ -12,6 +12,8 @@
         compatible="ad5592r_s";
 		reg = <0>;
 		spi-max-frequency = <1000000>;
+        //din datasheet -> cpol = 1, cpha = 0
+        spi-cpol;
     };
 };
 
