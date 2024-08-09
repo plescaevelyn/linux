@@ -93,6 +93,7 @@ config KERNEL_ALL_ADI_DRIVERS
 	imply RTC_DRV_MAX31335
 	imply REGULATOR_MAX77503
 	imply REGULATOR_MAX77857
+	imply AD5592R_S
 
 source "drivers/clk/Kconfig.adi"
 source "drivers/hwmon/Kconfig.adi"
