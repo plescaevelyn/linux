@@ -5,12 +5,23 @@
 #include <linux/iio/iio.h>
 #include <linux/bitfield.h>
 
-#define AD5592RS_WR_ADDR_MSK GENMASK(14, 11)
-#define AD5592RS_WR_VAL_MSK GENMASK(8, 0)
+#define AD5592RS_WR_ADDR_MSK 				GENMASK(14, 11)
+#define AD5592RS_WR_VAL_MSK 				GENMASK(9, 0)
 
-#define AD5592RS_RDB_REG_SEL       GENMASK(5, 2)
-#define AD5592RS_RDB_EN            BIT(6)
-#define AD5592RS_CONF_RDB_REG      0x7
+#define AD5592RS_RDB_REG_SEL       			GENMASK(5, 2)
+#define AD5592RS_RDB_EN            			BIT(6)
+#define AD5592RS_CONF_RDB_REG				0x7
+
+#define AD5592RS_CONF_IN_EN					GENMASK(5,0)
+#define AD5592RS_CONF_REG					0x4
+
+#define AD5592RS_PD_REF_CTRL_REG			0xB
+#define AD5592RS_PD_REF_CTRL_VAL			BIT(9)
+
+#define AD5592RS_SEQ_CH(chan)				BIT(chan)
+#define AD5592RS_SEQ_REG		     		0X2
+
+#define AD5592RS_RD_VAL_MSK					GENMASK(11, 0)
 
 struct ad5592rs_state {
 	struct spi_device *spi;
@@ -63,50 +74,6 @@ struct iio_chan_spec const ad5592rs_chans[] = {
 	},
 
 };
-///////////////////////////////////////////////////////////
-static int ad5592rs_read_raw(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan, int *val,
-			     int *val2, long mask)
-{
-	struct ad5592rs_state *st = iio_priv(indio_dev);
-	switch (mask) {
-	case IIO_CHAN_INFO_RAW: {
-		if (st->en) {
-			switch (chan->channel) {
-			case 0:
-				*val = st->chan0;
-				break;
-			case 1:
-				*val = st->chan1;
-				break;
-			case 2:
-				*val = st->chan2;
-				break;
-			case 3:
-				*val = st->chan3;
-				break;
-			case 4:
-				*val = st->chan4;
-				break;
-			case 5:
-				*val = st->chan5;
-				break;
-			default:
-				*val = -1;
-				break;
-			}
-			return IIO_VAL_INT;
-		} else
-			return -EINVAL;
-	}
-	case IIO_CHAN_INFO_ENABLE:
-		*val = st->en;
-		return IIO_VAL_INT;
-	default:
-		return -EINVAL;
-	}
-	return -EINVAL;
-}
 //////////////////////////////////////////////
 static int ad5592rs_write_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan, int val,
@@ -114,39 +81,11 @@ static int ad5592rs_write_raw(struct iio_dev *indio_dev,
 {
 	struct ad5592rs_state *st = iio_priv(indio_dev);
 	switch (mask) {
-	case IIO_CHAN_INFO_ENABLE:
-		st->en = val;
-		return 0;
-	case IIO_CHAN_INFO_RAW: {
-		if (st->en) {
-			switch (chan->channel) {
-			case 0:
-				st->chan0 = val;
-				break;
-			case 1:
-				st->chan1 = val;
-				break;
-			case 2:
-				st->chan2 = val;
-				break;
-			case 3:
-				st->chan3 = val;
-				break;
-			case 4:
-				st->chan4 = val;
-				break;
-			case 5:
-				st->chan5 = val;
-				break;
-			default:
-				return -EINVAL;
-			}
+		case IIO_CHAN_INFO_ENABLE:
+			st->en = val;
 			return 0;
-		} else
+		default:
 			return -EINVAL;
-	}
-	default:
-		return -EINVAL;
 	}
 }
 /////////////////////////////////////////////
@@ -190,7 +129,7 @@ static int ad5592rs_spi_read ( struct ad5592rs_state *st, u8 reg, u16 *readval)
 {
 	u16 tx = 0;
 	u16 rx = 0;
-	u16 msg =0;
+	u16 msg = 0;
 	int ret;
 	struct spi_transfer xfer[] = {
 		{
@@ -226,6 +165,61 @@ static int ad5592rs_spi_read ( struct ad5592rs_state *st, u8 reg, u16 *readval)
 
 }
 /////////////////////////////////////////////
+static int ad5592rs_read_chan(struct ad5592rs_state *st,  struct iio_chan_spec *chan, int *val)
+{
+    int ret;
+    u16 rx = 0;
+	u16 msg = 0;
+    ret = ad5592rs_spi_write(st, AD5592RS_SEQ_REG, AD5592RS_SEQ_CH(chan->channel));
+    if(ret){
+        dev_err(&st->spi->dev, "skibidi conversion en write fail");
+        return ret;
+    }
+
+	ret = ad5592rs_spi_nop(st, &rx);
+	if(ret){
+		dev_err(&st->spi->dev, "skibidid nop transfer");
+		return ret;
+	}
+	ret = ad5592rs_spi_nop(st, &rx);
+	if(ret){
+		dev_err(&st->spi->dev, "skibidid nop transfer");
+		return ret;
+	}
+
+	msg = get_unaligned_be16(&rx);
+	msg &= AD5592RS_RD_VAL_MSK;
+    *val = msg;
+    return 0;
+}
+///////////////////////////////////////////////////////////
+static int ad5592rs_read_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan, int *val,
+			     int *val2, long mask)
+{
+	struct ad5592rs_state *st = iio_priv(indio_dev);
+	int ret;
+	switch (mask) {
+		case IIO_CHAN_INFO_RAW: {
+			if (st->en) {
+				ret = ad5592rs_read_chan(st, chan, val);
+				if (ret){
+           	    	dev_err (&st->spi->dev, "sibidi error reading channel");
+                	return ret;
+            	}
+            	return IIO_VAL_INT;
+        	}
+        	else 
+            	return -EINVAL;
+		}
+        case IIO_CHAN_INFO_ENABLE:
+            *val = st-> en;
+            return IIO_VAL_INT;
+		default:
+			return -EINVAL;
+	}
+}
+/////////////////////////////////////////////
 static int ad5592rs_debugfs(struct iio_dev *indio_dev, unsigned reg, unsigned writeval, unsigned *readval)
 {
     struct ad5592rs_state *st = iio_priv(indio_dev);
@@ -248,7 +242,7 @@ static int ad5592rs_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
 	struct ad5592rs_state *st;
-	//int ret;
+	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(st));
 
@@ -264,6 +258,18 @@ static int ad5592rs_probe(struct spi_device *spi)
 	st->en = 0;
 	st->spi = spi;
 
+////////
+	ret = ad5592rs_spi_write(st, AD5592RS_PD_REF_CTRL_REG, AD5592RS_PD_REF_CTRL_VAL);
+	if(ret){
+        dev_err(&spi->dev, "skibidi REF enable failed");
+        return ret;
+    }
+	ret = ad5592rs_spi_write(st, AD5592RS_CONF_REG, AD5592RS_CONF_IN_EN); 
+    if(ret){
+        dev_err(&spi->dev, "skibidi input config failed");
+        return ret;
+    }
+////////
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
 
