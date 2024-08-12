@@ -5,10 +5,21 @@
 
 #include <linux/spi/spi.h>
 #include <linux/module.h>
-
 #include <linux/iio/iio.h>
+#include <linux/bitfield.h>
+#include <asm/unaligned.h>
+
+
+#define AD5592R_S_ADDR_WR_MSK       GENMASK(14, 11)
+#define AD5592R_S_VAL_WR_MSK        GENMASK(8, 0)
+
+#define AD5592R_S_READBACK_REG_SEL  GENMASK(5, 2)
+#define AD5592R_S_RDB_ENABLE        BIT(6)
+
+#define AD5592R_S_CONF_RDB_REG      0x7
 
 struct ad5592r_s_state {
+    struct spi_device *spi;
     bool en;
     int chan0;
     int chan1;
@@ -177,9 +188,121 @@ static int iio_ad5592r_write_raw (struct iio_dev *indio_dev,
 }
 
 
+static int ad5592r_s_spi_write (struct ad5592r_s_state *st, u8 reg, u16 writeval)
+{
+    u16 tx = 0;
+    u16 msg = 0;
+    int ret;
+
+
+    struct spi_transfer xfer[] =
+    {
+        {
+        .tx_buf = &msg,
+        .rx_buf = NULL,
+        .len = 2,
+        }
+    };
+
+    tx = FIELD_PREP(AD5592R_S_ADDR_WR_MSK, reg) | 
+         FIELD_PREP(AD5592R_S_VAL_WR_MSK, writeval);
+
+    dev_info(&st->spi->dev, "ad5592r_s_spi_write: tx = %X\n", tx);
+
+    put_unaligned_be16(tx, &msg);
+
+    dev_info(&st->spi->dev, "ad5592r_s_spi_write: msg = %X\n", msg);
+
+
+    ret = spi_sync_transfer(st->spi, xfer, 1);
+    if (ret)
+    {
+        dev_err(&st->spi->dev, "SPI sync transfer fail during write");
+        return ret;
+    }
+
+    return 0;
+}
+
+static int ad5592r_s_spi_nop(struct ad5592r_s_state *st, u16 *val)
+{
+    u16 tx = 0; 
+
+    struct spi_transfer xfer [] = {
+        {
+            .tx_buf = &tx,
+            .rx_buf = val,
+            .len = 2,
+        }
+    };
+
+    return spi_sync_transfer(st->spi, xfer, 1);
+}
+
+
+static int ad5592r_s_spi_read(struct ad5592r_s_state *st, u8 reg, u16 *readval)
+{
+    u16 tx = 0;
+    u16 rx = 0;
+    u16 msg = 0;
+    int ret;
+
+    struct spi_transfer xfer[] = {
+        {
+            .tx_buf = &msg,
+            .rx_buf = NULL,
+            .len = 2,
+        }
+    };
+    
+    tx |= FIELD_PREP(AD5592R_S_ADDR_WR_MSK, AD5592R_S_CONF_RDB_REG);
+    tx |= AD5592R_S_RDB_ENABLE;
+    tx |= FIELD_PREP(AD5592R_S_READBACK_REG_SEL, reg);
+
+    dev_info(&st->spi->dev, "ad5592r_s_spi_read: tx = 0x%X\n", tx);
+
+    put_unaligned_be16(tx, &msg);
+
+    dev_info(&st->spi->dev, "ad5592r_s_spi_read: msg = 0x%X\n", msg);
+
+    ret = spi_sync_transfer(st->spi, xfer, 1);
+    if (ret)
+    {
+        dev_err(&st->spi->dev, "Failed spi transfer config reg");
+        return ret;
+    }
+
+    ret = ad5592r_s_spi_nop(st, &rx);
+    if (ret)
+    {
+        dev_err(&st->spi->dev, "Failed nop transfer");
+        return ret;
+    }
+
+    *readval = get_unaligned_be16(&rx);
+
+    return 0;
+}
+
+static int ad5592r_s_debugfs(struct iio_dev *indio_dev,
+                             unsigned reg, 
+                             unsigned writeval,
+                             unsigned *readval)
+{
+    struct ad5592r_s_state *st = iio_priv(indio_dev);
+
+    if (readval)
+    {
+        return ad5592r_s_spi_read(st, reg, (u16 *) readval);
+    }
+    else return ad5592r_s_spi_write(st, reg, writeval);
+
+}
+
 static const struct iio_info ad5592r_s_info = {
     .read_raw = &iio_ad5592r_read_raw,
     .write_raw = &iio_ad5592r_write_raw,
+    .debugfs_reg_access = &ad5592r_s_debugfs,
 
 
 };
@@ -210,6 +333,7 @@ static int ad5592r_s_probe(struct spi_device *spi)
     st->chan3 = 0;
     st->chan4 = 0;
     st->chan5 = 0;
+    st->spi = spi;
 
 
     return devm_iio_device_register(&spi->dev, indio_dev);
