@@ -11,11 +11,20 @@
 
 
 
-#define IIO_ADC_EMU_READ_MSK BIT(7)
-#define IIO_ADC_EMU_READ_ADDR_MSK GENMASK(6, 0)
+#define IIO_ADC_EMU_READ_MSK            BIT(7)
+#define IIO_ADC_EMU_READ_ADDR_MSK       GENMASK(6, 0)
 
-#define IIO_ADC_EMU_WRITE_ADDR_MSK GENMASK(14, 8)
-#define IIO_ADC_EMU_WRITE_DATA_MSK GENMASK(7, 0)
+#define IIO_ADC_EMU_WRITE_ADDR_MSK      GENMASK(14, 8)
+#define IIO_ADC_EMU_WRITE_DATA_MSK      GENMASK(7, 0)
+
+#define IIO_ADC_EMU_REG_CNVST           0X3
+#define IIO_ADC_EMU_REG_POWERON         0X2
+
+#define IIO_ADC_EMU_REG_CHAN_HIGH(x)    0X4 + x*2
+#define IIO_ADC_EMU_REG_CHAN_LOW(x)     0X5 + x*2
+#define IIO_ADC_EMU_REG_CHIP_ID         0X0
+
+#define IIO_ADC_EMU_CNVST_EN            BIT(0)
 
 //necesara pentru stocarea datelor interne din cadrul chip-ului
 struct iio_adc_emu_state {
@@ -109,6 +118,35 @@ static int iio_adc_emu_spi_write(struct iio_adc_emu_state *st, u8 reg, u8 writev
     return 0;
 }
 
+
+static int iio_adc_emu_read_chan(struct iio_adc_emu_state *st, struct iio_chan_spec *chan, int *val) {
+    int ret;
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_CNVST, IIO_ADC_EMU_CNVST_EN);
+
+    if (ret) {
+        dev_err(&st->spi->dev, "Failed conversion reg write");
+        return ret;
+    }
+
+    u8 high;
+    u8 low;
+
+    ret = iio_adc_emu_spi_read(st, &high,IIO_ADC_EMU_REG_CHAN_HIGH(chan->channel));
+    if (ret) {
+        dev_err(&st->spi->dev, "Failed to read high register");
+        return ret;
+    }
+
+    ret = iio_adc_emu_spi_read(st, &low,IIO_ADC_EMU_REG_CHAN_LOW(chan->channel));
+    if (ret) {
+        dev_err(&st->spi->dev, "Failed to read low register");
+        return ret;
+    }
+
+    *val = (high << 8) | low;
+    return 0;   
+}
+
 static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
 	    struct iio_chan_spec const *chan,
 		int val,
@@ -119,19 +157,7 @@ static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
 
     switch(mask) {
-        case IIO_CHAN_INFO_RAW:
-            if (st->en) {
-              if (chan->channel) {
-                st->chan1 = val;
-              }
-              else {
-                st->chan0 = val;
-              }
-              return 0;
-            }
-            else {
-                return -EINVAL;
-            }
+        //canalele sunt read-only!!!
         case IIO_CHAN_INFO_ENABLE:
             st->en = val;
             return 0;
@@ -150,18 +176,16 @@ static int iio_adc_emu_read_raw (struct iio_dev *indio_dev,
 {
 
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
+    int ret;
     
     switch(mask) {
         case IIO_CHAN_INFO_RAW:
             if(st->en) {
-                if(chan->channel) {
-                    //canal 1
-                    *val = st->chan1;
+                ret = iio_adc_emu_read_chan(st, chan, val);
+                if (ret) {
+                    dev_err(&st->spi->dev, "Error reading from channel");
+                    return ret;
                 }
-                else {
-                    //canal 0
-                    *val = st->chan0;
-            }
             return IIO_VAL_INT;
             }
             else {
@@ -203,7 +227,7 @@ static int iio_adc_emu_probe(struct spi_device *spi) {
     struct iio_dev *indio_dev;
     struct iio_adc_emu_state *st;
     //variabila care va fi returnata ca succes/esec
-    //int ret;
+    int ret;
 
     indio_dev = devm_iio_device_alloc(&(spi->dev), sizeof(*st));
     if (!indio_dev) {
@@ -222,6 +246,12 @@ static int iio_adc_emu_probe(struct spi_device *spi) {
     st->chan0 = 0;
     st->chan1 = 0; 
     st->spi = spi;
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error while powering on ADC");
+        return ret;
+    }
 
     return devm_iio_device_register(&spi->dev, indio_dev);
 }
