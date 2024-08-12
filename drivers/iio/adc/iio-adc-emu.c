@@ -9,10 +9,16 @@
 #include <linux/iio/iio.h>
 #include <linux/bitfield.h>         
 
-#define IIO_ADC_ADDR_RD_MSK         GENMASK(6,0)
-#define IIO_ADC_EMU_RD_MSK          BIT(7)
-#define IIO_ADC_ADDR_WR_MSK         GENMASK(14,8)
-#define IIO_ADC_VAL_MSK             GENMASK(7,0)
+#define IIO_ADC_ADDR_RD_MSK                 GENMASK(6,0)
+#define IIO_ADC_EMU_RD_MSK                  BIT(7)
+#define IIO_ADC_ADDR_WR_MSK                 GENMASK(14,8)
+#define IIO_ADC_VAL_MSK                     GENMASK(7,0)
+
+#define IIO_ADC_EMU_REG_CNVST               0x3
+#define IIO_ADC_EMU_REG_POWERON             0X2
+#define IIO_ADC_EMU_REG_CHAN_HIGH(x)        0x4 + x*2
+#define IIO_ADC_EMU_REG_CHAN_LOW(x)         0x5 + x*2
+#define IIO_ADC_EMU_CNVST_EN                BIT(0)
 
 struct iio_adc_emu_state {
     bool en;
@@ -37,35 +43,6 @@ struct iio_chan_spec const iio_adc_emu_chans[] = {
     }
 
 };
-///////////////////////////////////////////////
-static int iio_adc_emu_read_raw  (struct iio_dev *indio_dev,
-			struct iio_chan_spec const *chan,
-			int *val,
-			int *val2,
-			long mask)
-{
-    struct iio_adc_emu_state *st = iio_priv(indio_dev);
-    switch (mask)
-    {
-        case IIO_CHAN_INFO_RAW:
-        if (st -> en)
-        {
-            if (chan -> channel)
-                *val = st -> chan1;
-            else 
-                *val = st -> chan0;
-            return IIO_VAL_INT;
-        }
-        else 
-            return -EINVAL;
-        case IIO_CHAN_INFO_ENABLE:
-            *val = st-> en;
-            return IIO_VAL_INT;
-        default:
-            return -EINVAL;
-    }
-    return -EINVAL;
-}
 ////////////////////////////////////////////////////////////
 static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
 			 struct iio_chan_spec const *chan,
@@ -79,16 +56,6 @@ static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
 	    case IIO_CHAN_INFO_ENABLE:
 		    st->en = val;
 		    return 0;
-        case IIO_CHAN_INFO_RAW:
-            if (st->en){
-                if(chan->channel)
-                    st->chan1 = val;
-                else
-                    st->chan0 = val;
-                return 0;
-            } 
-            else
-                return -EINVAL;
 	    default:
 		    return -EINVAL;
 	}
@@ -137,7 +104,66 @@ static int iio_adc_emu_spi_write (struct iio_adc_emu_state *st, u8 reg, u8 write
          dev_info(&st->spi->dev, "msg = 0x%X", msg);
         return spi_sync_transfer(st->spi, &xfer, 1);
 }
-/////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+static int iio_adc_emu_read_chan(struct iio_adc_emu_state *st,  struct iio_chan_spec *chan, int *val)
+{
+    int ret;
+    u8 high;
+    u8 low;
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_CNVST, IIO_ADC_EMU_CNVST_EN);
+    if(ret){
+        dev_err(&st->spi->dev, "skibidi conversion reg write fail");
+        return ret;
+    }
+
+    ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_HIGH(chan -> channel), &high);
+    if(ret){
+        dev_err(&st->spi->dev, "skibidi read chan high fail");
+    return ret;
+    }
+
+    ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_LOW(chan -> channel), &low);
+    if(ret){
+        dev_err(&st->spi->dev, "skibidi read chan high fail");
+    return ret;
+    }
+
+    *val = (high << 8) | low;
+    return 0;
+}
+///////////////////////////////////////////////
+static int iio_adc_emu_read_raw  (struct iio_dev *indio_dev,
+			struct iio_chan_spec const *chan,
+			int *val,
+			int *val2,
+			long mask)
+{
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+    int ret;
+    switch (mask)
+    {
+        case IIO_CHAN_INFO_RAW:
+        if (st -> en)
+        {
+            ret = iio_adc_emu_read_chan(st, chan, val);
+            if (ret){
+                dev_err (&st->spi->dev, "sibidi error reading channel");
+                return ret;
+            }
+            return IIO_VAL_INT;
+        }
+        else 
+            return -EINVAL;
+        case IIO_CHAN_INFO_ENABLE:
+            *val = st-> en;
+            return IIO_VAL_INT;
+        default:
+            return -EINVAL;
+    }
+    return -EINVAL;
+}
+////////////////////////////////////////////////////////////////
 static int iio_adc_emu_debugfs (struct iio_dev *indio_dev, unsigned reg, unsigned writeval, unsigned *readval)
 {
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
@@ -158,7 +184,7 @@ static int iio_adc_emu_probe ( struct spi_device *spi )
 
     struct iio_dev *indio_dev;
     struct iio_adc_emu_state *st;
-    //int ret;
+    int ret;
 
     
     indio_dev = devm_iio_device_alloc(&spi -> dev, sizeof(st));
@@ -175,6 +201,12 @@ static int iio_adc_emu_probe ( struct spi_device *spi )
     st = iio_priv (indio_dev);
     st -> en = 0; 
     st -> spi = spi;
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0); 
+    if(ret){
+        dev_err(&spi->dev, "skibidi ON reg failed");
+        return ret;
+    }
     return devm_iio_device_register(&spi->dev, indio_dev);
  
 }
