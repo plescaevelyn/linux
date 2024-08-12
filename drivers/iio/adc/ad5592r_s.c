@@ -10,12 +10,21 @@
 #include <linux/iio/iio.h>
 #include <asm/unaligned.h>
 
-#define AD5592R_S_READBACK_ENABLE BIT(6)
-#define AD5592R_S_READBACK_REG_SEL GENMASK(5, 2)
-#define AD5592R_S_CONF_READBACK_REG 0x7
+#define AD5592R_S_READBACK_ENABLE       BIT(6)
+#define AD5592R_S_READBACK_REG_SEL      GENMASK(5, 2)
+#define AD5592R_S_CONF_READBACK_REG     0x7
 
-#define AD5592R_S_WRITE_ADDR_MSK GENMASK(14, 11)
-#define AD5592R_S_WRITE_DATA_MSK GENMASK(8, 0)
+#define AD5592R_S_WRITE_ADDR_MSK        GENMASK(14, 11)
+#define AD5592R_S_WRITE_DATA_MSK        GENMASK(9, 0)
+
+#define AD5592R_S_REF_EN                BIT(9)
+#define AD5592R_S_CONFIG_MSK            GENMASK(5, 0)
+#define AD5592R_S_SEQ_MSK(x)            BIT(x)
+#define AD5592R_S_PD_REG                0x6
+#define AD5592R_S_ADC_CONF_REG          0x4
+#define AD5592R_S_ADC_SEQ_REG           0x2
+#define AD5592R_S_CONV_RES_MSK          GENMASK(11, 0)
+
 
 
 struct ad5592r_s_state {
@@ -174,6 +183,37 @@ static int ad5592r_s_spi_write(struct ad5592r_s_state *st, u8 reg, u16 writeval)
 }
 
 
+static int ad5592r_s_read_chan(struct ad5592r_s_state *st, struct iio_chan_spec *chan, int *val) {
+    int ret;
+
+    //activarea canalului pentru conversie
+    ret = ad5592r_s_spi_write(st, AD5592R_S_ADC_SEQ_REG, AD5592R_S_SEQ_MSK(chan->channel));
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during CONVERSION start");
+        return ret;
+    }
+
+    u16 rx = 0;
+    u16 temp = 0;
+    ret = ad5592r_s_spi_nop(st, NULL);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during first NOP operation");
+        return ret;
+    }
+
+    ret = ad5592r_s_spi_nop(st, &rx);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during getting conversion result");
+        return ret;
+    }
+
+    put_unaligned_be16(rx, &temp);
+    *val = FIELD_PREP(AD5592R_S_CONV_RES_MSK, temp);
+
+    dev_info(&st->spi->dev, "Conversion result = 0x%X", *val);
+    return ret;
+}
+
 
 static int ad5592r_s_write_raw (struct iio_dev *indio_dev,
 	    struct iio_chan_spec const *chan,
@@ -188,6 +228,8 @@ static int ad5592r_s_write_raw (struct iio_dev *indio_dev,
         case IIO_CHAN_INFO_ENABLE:
             st->en = val;
             return 0;
+        //canalele sunt read-only!!
+        /* 
         case IIO_CHAN_INFO_RAW:
             if (st->en) {
                 st->chans[chan->channel] = val;
@@ -196,7 +238,7 @@ static int ad5592r_s_write_raw (struct iio_dev *indio_dev,
             else {
                 return -EINVAL;
             }
-            
+        */
         default:
             return -EINVAL;
     }
@@ -212,6 +254,7 @@ static int ad5592r_s_read_raw (struct iio_dev *indio_dev,
 {
 
     struct ad5592r_s_state *st = iio_priv(indio_dev);
+    int ret;
 
     switch(mask) {
         case IIO_CHAN_INFO_ENABLE:
@@ -219,7 +262,12 @@ static int ad5592r_s_read_raw (struct iio_dev *indio_dev,
             return IIO_VAL_INT;
         case IIO_CHAN_INFO_RAW:
             if (st->en) {
-               *val = st->chans[chan->channel];
+                //*val = st->chans[chan->channel];
+                ret = ad5592r_s_read_chan(st, chan, val);
+                if (ret) {
+                    dev_err(&st->spi->dev, "Error reading from ADC channel");
+                    return ret;
+                }
                 return IIO_VAL_INT;
             }
             else {
@@ -258,7 +306,7 @@ static const struct iio_info ad5592r_s_info = {
 static int ad5592r_s_probe(struct spi_device *spi) {
     struct iio_dev *indio_dev;
     //variabila care va fi returnata ca succes/esec
-    //int ret;
+    int ret;
 
     indio_dev = devm_iio_device_alloc(&(spi->dev), 0);
     if (!indio_dev) {
@@ -274,11 +322,26 @@ static int ad5592r_s_probe(struct spi_device *spi) {
     indio_dev->num_channels = ARRAY_SIZE(ad5592r_s_chans);
 
     st = iio_priv(indio_dev);
-    st->en = 0;  
+    //activare automata ?
+    st->en = 1;  
     for (int i = 0; i < 8; i++) { 
         st->chans[i] = 0;
     }
     st->spi = spi;
+
+    //enable pentru referinta interna
+    ret = ad5592r_s_spi_write(st, AD5592R_S_PD_REG, AD5592R_S_REF_EN);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during REF initialization");
+        return ret;
+    }
+
+    //activarea regimului ADC pentru 6 canale
+    ret = ad5592r_s_spi_write(st, AD5592R_S_ADC_CONF_REG, AD5592R_S_CONFIG_MSK);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during CONFIG REG initialization");
+        return ret;
+    }
 
     return devm_iio_device_register(&spi->dev, indio_dev);
 }
