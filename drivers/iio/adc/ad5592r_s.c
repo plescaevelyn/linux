@@ -3,12 +3,16 @@
  * Copyright (C) 2024 Analog Devices, Inc.
  */
 
-
-#include <linux/bitfield.h>
-#include <linux/spi/spi.h>
-#include <linux/module.h>
-#include <linux/iio/iio.h>
 #include <asm/unaligned.h>
+#include <linux/bitfield.h>
+
+#include <linux/iio/buffer.h>
+#include <linux/iio/iio.h>
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
+
+#include <linux/module.h>
+#include <linux/spi/spi.h>
 
 #define AD5592R_S_READBACK_ENABLE       BIT(6)
 #define AD5592R_S_READBACK_REG_SEL      GENMASK(5, 2)
@@ -41,6 +45,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 0,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 0,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
@@ -48,6 +58,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 1,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 1,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
@@ -55,6 +71,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 2,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 2,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
@@ -62,6 +84,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 3,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 3,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
@@ -69,6 +97,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 4,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 4,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
@@ -76,6 +110,12 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .channel = 5,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 5,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     //8 canale in datasheet, dar se folosesc 6
     {
@@ -83,12 +123,24 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .indexed = 1,
         .channel = 6,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .scan_index = 6,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     },
     {
         .type = IIO_VOLTAGE,
         .indexed = 1,
         .channel = 7,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .scan_index = 7,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12, 
+            .storagebits = 16,
+        }, 
     }
 };
 
@@ -281,6 +333,59 @@ static int ad5592r_s_read_raw (struct iio_dev *indio_dev,
     return -EINVAL;
 }
 
+static irqreturn_t ad5592r_s_trig_handler(int irq, void *p) {
+    //cate canale
+    u16 buf[8];
+    int bit = 0;
+    struct iio_poll_func *pf = p;
+    struct iio_dev *indio_dev = pf->indio_dev;
+
+    //activarea conversiei
+    int ret;
+    struct ad5592r_s_state *st = iio_priv(indio_dev);
+
+    //counter pentru numarul de canale active in buffer (daca unele canale nu sunt initalizate, nu mai trebuie sa apara in buffer)
+    int i = 0;
+
+    for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels) {
+        //activarea canalului pentru conversie
+        ret = ad5592r_s_spi_write(st, AD5592R_S_ADC_SEQ_REG, AD5592R_S_SEQ_MSK(bit));
+        if (ret) {
+            dev_err(&st->spi->dev, "Error during CONVERSION start in trigger handler");
+            return ret;
+        }
+
+        u16 rx = 0;
+        u16 temp = 0;
+        ret = ad5592r_s_spi_nop(st, NULL);
+        if (ret) {
+            dev_err(&st->spi->dev, "Error during first NOP operation in trigger handler");
+            return ret;
+        }
+
+        ret = ad5592r_s_spi_nop(st, &rx);
+        if (ret) {
+            dev_err(&st->spi->dev, "Error during getting conversion result in trigger handler");
+            return ret;
+        }
+
+        put_unaligned_be16(rx, &temp);
+        buf[i++] = FIELD_PREP(AD5592R_S_CONV_RES_MSK, temp);
+
+        dev_info(&st->spi->dev, "Conversion result from trigger handler = 0x%X", buf[bit]);
+    }
+
+    ret = iio_push_to_buffers(indio_dev, buf);
+    if (ret) {
+        dev_err(&st->spi->dev, "Failed to push to buffers in trigger handler");
+        return IRQ_HANDLED;
+    }
+
+    iio_trigger_notify_done(indio_dev->trig);
+
+    return IRQ_HANDLED;
+}
+
 static int ad5592r_s_reg_access(struct iio_dev *indio_dev,
 		unsigned reg, 
         unsigned writeval,
@@ -328,6 +433,12 @@ static int ad5592r_s_probe(struct spi_device *spi) {
         st->chans[i] = 0;
     }
     st->spi = spi;
+
+    ret = devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev, NULL, ad5592r_s_trig_handler, IIO_BUFFER_DIRECTION_IN, NULL, NULL);
+    if (ret) {
+        dev_err(&st->spi->dev, "Error during buffer setup");
+        return ret;
+    }
 
     //enable pentru referinta interna
     ret = ad5592r_s_spi_write(st, AD5592R_S_PD_REG, AD5592R_S_REF_EN);
