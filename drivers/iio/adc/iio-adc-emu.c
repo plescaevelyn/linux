@@ -5,9 +5,14 @@
  * Copyright (C) 2024 Analog Devices, Inc.
  */
 #include <linux/spi/spi.h>
+#include <asm/unaligned.h>
 #include <linux/module.h>
 #include <linux/iio/iio.h>
-#include <linux/bitfield.h>         
+#include <linux/bitfield.h>  
+
+#include <linux/iio/buffer.h>
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
 
 #define IIO_ADC_ADDR_RD_MSK                 GENMASK(6,0)
 #define IIO_ADC_EMU_RD_MSK                  BIT(7)
@@ -25,7 +30,9 @@ struct iio_adc_emu_state {
     int chan0, chan1;
     struct spi_device *spi;
 };  
-/////////////////////////////////////////////////
+
+
+
 struct iio_chan_spec const iio_adc_emu_chans[] = {
     {
         .type = IIO_VOLTAGE,
@@ -33,6 +40,12 @@ struct iio_chan_spec const iio_adc_emu_chans[] = {
         .channel = 0,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index=0,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
     {
         .type = IIO_VOLTAGE,
@@ -40,15 +53,21 @@ struct iio_chan_spec const iio_adc_emu_chans[] = {
         .channel = 1,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index=1,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     }
 
 };
-////////////////////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
-			 struct iio_chan_spec const *chan,
-			 int val,
-			 int val2,
-			 long mask)
+			                    struct iio_chan_spec const *chan,
+			                    int val, int val2, long mask)
 {
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
 	switch(mask)
@@ -60,7 +79,9 @@ static int iio_adc_emu_write_raw (struct iio_dev *indio_dev,
 		    return -EINVAL;
 	}
 }
-////////////////////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_spi_read(struct iio_adc_emu_state *st, u8 reg, u8 *readval)
 {
     u8 tx, rx;
@@ -86,7 +107,9 @@ static int iio_adc_emu_spi_read(struct iio_adc_emu_state *st, u8 reg, u8 *readva
     *readval = rx;
     return 0;
 }
-/////////////////////////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_spi_write (struct iio_adc_emu_state *st, u8 reg, u8 writeval)
 {
         u16 tx = 0;
@@ -104,7 +127,9 @@ static int iio_adc_emu_spi_write (struct iio_adc_emu_state *st, u8 reg, u8 write
          dev_info(&st->spi->dev, "msg = 0x%X", msg);
         return spi_sync_transfer(st->spi, &xfer, 1);
 }
-////////////////////////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_read_chan(struct iio_adc_emu_state *st,  struct iio_chan_spec *chan, int *val)
 {
     int ret;
@@ -132,12 +157,12 @@ static int iio_adc_emu_read_chan(struct iio_adc_emu_state *st,  struct iio_chan_
     *val = (high << 8) | low;
     return 0;
 }
-///////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_read_raw  (struct iio_dev *indio_dev,
-			struct iio_chan_spec const *chan,
-			int *val,
-			int *val2,
-			long mask)
+			                    struct iio_chan_spec const *chan,
+			                    int *val, int *val2, long mask)
 {
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
     int ret;
@@ -163,7 +188,9 @@ static int iio_adc_emu_read_raw  (struct iio_dev *indio_dev,
     }
     return -EINVAL;
 }
-////////////////////////////////////////////////////////////////
+
+
+
 static int iio_adc_emu_debugfs (struct iio_dev *indio_dev, unsigned reg, unsigned writeval, unsigned *readval)
 {
     struct iio_adc_emu_state *st = iio_priv(indio_dev);
@@ -172,13 +199,67 @@ static int iio_adc_emu_debugfs (struct iio_dev *indio_dev, unsigned reg, unsigne
 
     return iio_adc_emu_spi_write(st, reg, writeval);
 }
-///////////////////////////////////////////////////////////
+
+
+
 static const struct iio_info iio_adc_emu_info = {
     .read_raw = &iio_adc_emu_read_raw,
     .write_raw = &iio_adc_emu_write_raw,
     .debugfs_reg_access = &iio_adc_emu_debugfs,
 };
-/////////////////////////////////////////////////////////////////
+
+
+
+static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p)
+{
+    struct iio_poll_func *pf = p;
+    struct iio_dev *indio_dev = pf->indio_dev;
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+    u16 buf[2];
+    int bit = 0;
+    int ret;
+    int i = 0;
+    u8 high;
+    u8 low;
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_CNVST, IIO_ADC_EMU_CNVST_EN);
+    if(ret)
+    {
+        dev_err(&st->spi->dev, "Failed CONVERSION reg write in handler");
+        return ret;
+    }
+
+    for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels)
+    {
+        ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_LOW(bit), &low);
+        if(ret)
+        {
+            dev_err(&st->spi->dev, "Failed READ LOW in handler");
+            return ret;
+        }
+        ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_HIGH(bit), &high);
+        if(ret)
+        {
+            dev_err(&st->spi->dev, "Failed READ LOW in handler");
+            return ret;
+        }
+        buf[i++]= (high << 8) | low;
+    }
+
+    ret = iio_push_to_buffers(indio_dev, buf);
+    if(ret)
+    {
+        dev_err(&st->spi->dev, "Failed PUSH TO BUFFER in handler");
+        return ret;
+    }
+
+    iio_trigger_notify_done(indio_dev->trig);
+
+    return IRQ_HANDLED;
+}
+
+
+
 static int iio_adc_emu_probe ( struct spi_device *spi ) 
 {
 
@@ -200,16 +281,24 @@ static int iio_adc_emu_probe ( struct spi_device *spi )
 
     st = iio_priv (indio_dev);
     st -> en = 0; 
+    st->chan0 = 0;
+    st->chan1 = 0;
     st -> spi = spi;
 
-    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0); 
-    if(ret){
-        dev_err(&spi->dev, "skibidi ON reg failed");
+    ret = devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev, NULL, iio_adc_emu_trig_handler, IIO_BUFFER_DIRECTION_IN, NULL, NULL);
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0);
+    if(ret)
+    {
+        dev_err(&spi->dev, "Failed writing POWERON reg");
         return ret;
     }
+
     return devm_iio_device_register(&spi->dev, indio_dev);
  
 }
+
+
 
 static struct spi_driver iio_adc_emu_driver = {
 
