@@ -16,7 +16,15 @@
 #define AD5592R_S_CONF_RD_BACK_REG 0x7
 
 #define AD5592R_S_ADDR_WR_MSK GENMASK(14, 11)
-#define AD5592R_S_VAL_WR_MSK GENMASK(8, 0)
+#define AD5592R_S_VAL_WR_MSK GENMASK(9, 0)
+
+#define AD5592R_S_REG_PD_REF BIT(9)
+#define AD5592R_S_REG_CONFIG_ADC GENMASK(5, 0)
+
+#define AD5592R_S_CONFIG_ADC_REG 0x4
+#define AD5592R_S_CHAN_SEL_REG 0x2
+#define AD5592R_S_REG_PD 0xB
+#define AD5592R_S_RES_DATA_MSK GENMASK(11, 0)
 
 struct ad5592r_s_state {
 	struct spi_device *spi;
@@ -26,148 +34,53 @@ struct ad5592r_s_state {
 
 struct iio_chan_spec const ad5592r_s_chans[] = {
 	{
-		// channel 1
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 0,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 
 	{
-		// channel 2
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 1,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 
 	{
-		// channel 3
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 2,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 
 	{
-		// channel 4
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 3,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 
 	{
-		// channel 5
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 4,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	},
 
 	{
-		// channel 6
 		.type = IIO_VOLTAGE,
-		.indexed = 1, // daca numerotam sau nu
+		.indexed = 1,
 		.channel = 5,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
 		.info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
 	}
 
-};
-
-static int ad5592r_s_read_raw(struct iio_dev *indio_dev,
-			      struct iio_chan_spec const *chan, int *val,
-			      int *val2, long mask)
-{
-	struct ad5592r_s_state *st = iio_priv(indio_dev);
-
-	switch (mask) {
-	case IIO_CHAN_INFO_RAW:
-		if (st->en) {
-			switch (chan->channel) {
-			case 0:
-				*val = st->chan0;
-				break;
-			case 1:
-				*val = st->chan1;
-				break;
-			case 2:
-				*val = st->chan2;
-				break;
-			case 3:
-				*val = st->chan3;
-				break;
-			case 4:
-				*val = st->chan4;
-				break;
-			case 5:
-				*val = st->chan5;
-				break;
-			default:
-				return -EINVAL;
-			}
-
-			return IIO_VAL_INT;
-		} else
-			return -EINVAL;
-	case IIO_CHAN_INFO_ENABLE:
-		*val = st->en;
-		return IIO_VAL_INT;
-
-	default:
-		return -EINVAL;
-	}
-	return -EINVAL;
-};
-
-static int ad5592r_s_write_raw(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan, int val,
-			       int val2, long mask)
-{
-	struct ad5592r_s_state *st = iio_priv(indio_dev);
-
-	switch (mask) {
-	case IIO_CHAN_INFO_RAW:
-		if (st->en) {
-			switch (chan->channel) {
-			case 0:
-				st->chan0 = val;
-				break;
-			case 1:
-				st->chan1 = val;
-				break;
-			case 2:
-				st->chan2 = val;
-				break;
-			case 3:
-				st->chan3 = val;
-				break;
-			case 4:
-				st->chan4 = val;
-				break;
-			case 5:
-				st->chan5 = val;
-				break;
-			default:
-				return -EINVAL;
-			}
-
-			return 0;
-		} else
-			return -EINVAL;
-	case IIO_CHAN_INFO_ENABLE:
-		st->en = val;
-		return 0;
-	default:
-		return -EINVAL;
-	}
-	return -EINVAL;
 };
 
 static int ad5592r_s_nop(struct ad5592r_s_state *st, u16 *val)
@@ -242,6 +155,104 @@ static int ad5592r_s_spi_write(struct ad5592r_s_state *st, u8 reg, u16 writeval)
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
 
+static int ad5592r_s_read_channel_data(struct ad5592r_s_state *st,
+				       struct iio_chan_spec const *chan,
+				       int *readval)
+{
+	int ret;
+
+	// in probe: scrierile astea 2
+
+	// scriu in 0x4: vreau canalele 00111111
+
+	// scriu in 0x2: de pe ce canal vreau sa citesc
+
+	ret = ad5592r_s_spi_write(st, AD5592R_S_CHAN_SEL_REG, chan->channel);
+
+	u16 res;
+	ret = ad5592r_s_nop(st, NULL);
+	ret = ad5592r_s_nop(st, &res);
+
+	u16 temp;
+	temp = get_unaligned_be16(&res);
+
+	*readval = temp & AD5592R_S_RES_DATA_MSK;
+
+	return 0;
+}
+
+static int ad5592r_s_read_raw(struct iio_dev *indio_dev,
+			      struct iio_chan_spec const *chan, int *val,
+			      int *val2, long mask)
+{
+	struct ad5592r_s_state *st = iio_priv(indio_dev);
+	int ret;
+	switch (mask) {
+	case IIO_CHAN_INFO_RAW:
+		if (st->en) {
+			ret = ad5592r_s_read_channel_data(st, chan, val);
+			if (ret) {
+				dev_err(&st->spi->dev,
+					"error reading from channel");
+				return ret;
+			}
+			return IIO_VAL_INT;
+		} else
+			return -EINVAL;
+	case IIO_CHAN_INFO_ENABLE:
+		*val = st->en;
+		return IIO_VAL_INT;
+
+	default:
+		return -EINVAL;
+	}
+	return -EINVAL;
+};
+
+static int ad5592r_s_write_raw(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan, int val,
+			       int val2, long mask)
+{
+	struct ad5592r_s_state *st = iio_priv(indio_dev);
+
+	switch (mask) {
+	// case IIO_CHAN_INFO_RAW:
+	// 	if (st->en) {
+	// 		switch (chan->channel) {
+	// 		case 0:
+	// 			st->chan0 = val;
+	// 			break;
+	// 		case 1:
+	// 			st->chan1 = val;
+	// 			break;
+	// 		case 2:
+	// 			st->chan2 = val;
+	// 			break;
+	// 		case 3:
+	// 			st->chan3 = val;
+	// 			break;
+	// 		case 4:
+	// 			st->chan4 = val;
+	// 			break;
+	// 		case 5:
+	// 			st->chan5 = val;
+	// 			break;
+	// 		default:
+	// 			return -EINVAL;
+	// 		}
+
+	// 		return 0;
+	// 	} else
+	// 		return -EINVAL;
+	case IIO_CHAN_INFO_ENABLE:
+		st->en = val;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+	return -EINVAL;
+};
+
 static int ad5592r_s_debugfs(struct iio_dev *indio_dev, unsigned reg,
 			     unsigned writeval, unsigned *readval)
 {
@@ -264,6 +275,7 @@ static int ad5592r_s_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
 	struct ad5592r_s_state *st;
+	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*st));
 	if (!indio_dev)
@@ -275,7 +287,7 @@ static int ad5592r_s_probe(struct spi_device *spi)
 	indio_dev->num_channels = ARRAY_SIZE(ad5592r_s_chans);
 
 	st = iio_priv(indio_dev);
-	st->en = 0; // canalele is disabled by default
+	st->en = 0;
 	st->chan0 = 0;
 	st->chan1 = 0;
 	st->chan2 = 0;
@@ -283,6 +295,28 @@ static int ad5592r_s_probe(struct spi_device *spi)
 	st->chan4 = 0;
 	st->chan5 = 0;
 	st->spi = spi;
+
+	ret = ad5592r_s_spi_write(st, AD5592R_S_CONFIG_ADC_REG,
+				  AD5592R_S_REG_CONFIG_ADC);
+
+	if (ret) {
+		dev_err(&st->spi->dev, "failed reg write: adc reg config");
+		return ret;
+	}
+
+	// scriu in 0xB: BIT(9)
+
+	ret = ad5592r_s_spi_write(st, AD5592R_S_REG_PD, AD5592R_S_REG_PD_REF);
+
+	if (ret) {
+		dev_err(&st->spi->dev, "failed reg write: vref on");
+		return ret;
+	}
+
+	if (ret) {
+		dev_err(&spi->dev, "failed writing ___ reg");
+		return ret;
+	}
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
