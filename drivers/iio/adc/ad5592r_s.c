@@ -20,7 +20,7 @@
 #define AD5592R_S_REF_EN                BIT(9)
 #define AD5592R_S_CONFIG_MSK            GENMASK(5, 0)
 #define AD5592R_S_SEQ_MSK(x)            BIT(x)
-#define AD5592R_S_PD_REG                0x6
+#define AD5592R_S_PD_REG                0xB
 #define AD5592R_S_ADC_CONF_REG          0x4
 #define AD5592R_S_ADC_SEQ_REG           0x2
 #define AD5592R_S_CONV_RES_MSK          GENMASK(11, 0)
