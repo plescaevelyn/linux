@@ -5,15 +5,33 @@
 
 #include <linux/spi/spi.h>
 #include <linux/module.h>
+#include <linux/bitfield.h>
+#include <asm/unaligned.h>
+
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
+#include <linux/iio/buffer.h>
 #include <linux/iio/iio.h>
 
+#define IIO_ADC_EMU_READ_MSK                BIT(7)
+#define IIO_ADC_ADDR_RD_MSK                 GENMASK( 6, 0)
+#define IIO_ADC_ADDR_WR_MSK                 GENMASK(14, 8)
+#define IIO_ADC_VALUE_MSK                   GENMASK( 7, 0)
+
+#define IIO_ADC_EMU_REG_CNVST               0x3
+#define IIO_ADC_EMU_REG_POWERON             0x2
+#define IIO_ADC_EMU_
+
+#define IIO_ADC_EMU_REG_CHAN_HIGH(x)        0x4 + x * 2
+#define IIO_ADC_EMU_REG_CHAN_LOW(x)         0x5 + x * 2
+#define IIO_ADC_EMU_CNVST_EN                BIT(0)
 
 struct iio_adc_emu_state{
+    struct spi_device* spi; 
     bool en;
     int chan0;
     int chan1;
 };
-
 
 struct iio_chan_spec const iio_adc_emu_chans[] = {
     {
@@ -21,50 +39,114 @@ struct iio_chan_spec const iio_adc_emu_chans[] = {
         .indexed = 1,
         .channel = 0,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-        .info_mask_shared_by_all=BIT(IIO_CHAN_INFO_ENABLE),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index=0,
+        .scan_type={
+            .sign='u',
+            .realbits=12,
+            .storagebits=16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
         .indexed = 1,
         .channel = 1,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-        .info_mask_shared_by_all=BIT(IIO_CHAN_INFO_ENABLE),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+           .scan_index=1,
+        .scan_type={
+            .sign='u',
+            .realbits=12,
+            .storagebits=16,
+        }
     }
 };
 
-static int iio_adc_emu_write_raw(struct iio_dev *indio_dev,
-			struct iio_chan_spec const *chan,
-			int val,
-			int val2,
-			long mask)
+static int iio_adc_emu_spi_write(struct iio_adc_emu_state *st,
+                                u8 reg,
+                                u8 writeval)
 {
+    u16 tx = 0;
+    u16 msg;
+    struct spi_transfer xfer = {
+        .rx_buf = NULL,
+        .tx_buf = &msg,
+        .len = 2,
+    };
 
-    struct iio_adc_emu_state *st= iio_priv(indio_dev);
+    tx = FIELD_PREP(IIO_ADC_ADDR_WR_MSK, reg) |  FIELD_PREP(IIO_ADC_VALUE_MSK, writeval);
 
-    switch (mask)
+    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    
+    put_unaligned_be16(tx, &msg);
+    dev_info(&st->spi->dev, "tx = 0x%X", msg);
+
+    return spi_sync_transfer(st->spi, &xfer, 1);
+}
+
+static int iio_adc_emu_spi_read(struct iio_adc_emu_state *st,
+                                u8 reg,
+                                u8 *readval)
+{
+    u8 tx;
+    u8 rx;
+    int ret;
+    struct spi_transfer xfer[] = {
+        {
+            .rx_buf = NULL,
+            .tx_buf = &tx,
+            .len = 1,
+        },
+        {
+            .rx_buf = &rx,
+            .tx_buf = NULL,
+            .len = 1,
+        }
+    };
+
+    tx = IIO_ADC_EMU_READ_MSK | FIELD_PREP(IIO_ADC_ADDR_RD_MSK, reg);
+
+    ret = spi_sync_transfer(st->spi, xfer, 2);
+
+    if (ret)
     {
-    case IIO_CHAN_INFO_ENABLE:
-        st->en=val;
-        return 0;
-    case IIO_CHAN_INFO_RAW:
-    if(st->en){
-        if(chan->channel){
-            st->chan1=val;
-
-        }
-        else{
-            st->chan0=val;
-        }
-        return 0;
+        dev_err(&st->spi->dev, "Spi sync transfer fail during read");
+        return ret;
     }
-    else 
-        return -EINVAL;
-        //return IIO_VAL_INT;
-    default:
-        return -EINVAL;
+    
+    *readval = rx;
+    return 0;
+}
+
+
+static int iio_adc_emu_read_chan(struct iio_adc_emu_state *st, struct iio_chan_spec const *chan, int *val)
+{
+    int ret;
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_CNVST, IIO_ADC_EMU_CNVST_EN);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED conversion reg write!");
+        return ret;
+    }
+    
+    u8 high;
+    u8 low;
+
+    ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_HIGH(chan->channel), &high);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED read chan high!");
+        return ret;
     }
 
-    return -EINVAL;
+    ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_LOW(chan->channel), &low);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED read chan low!");
+        return ret;
+    }
+
+    *val = (high << 8) | low;
+
+    return 0;
 }
 
 static int iio_adc_emu_read_raw(struct iio_dev *indio_dev,
@@ -73,23 +155,23 @@ static int iio_adc_emu_read_raw(struct iio_dev *indio_dev,
 			int *val2,
 			long mask)
 {
-struct iio_adc_emu_state *st =iio_priv(indio_dev);
-
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+    int ret;
     switch (mask)
     {
     case IIO_CHAN_INFO_RAW:
         if(st->en){
-        if(chan->channel)
-            *val =  st->chan1;
-        else
-            *val = st->chan0;
-        return IIO_VAL_INT;
+            ret = iio_adc_emu_read_chan(st, chan, val);
+            if(ret){
+                dev_err(&st->spi->dev, "FAILED reading from channel!");
+                return ret;
+            }
+            return IIO_VAL_INT;
         }
         else 
-        return -EINVAL;
-
+            return -EINVAL;
     case IIO_CHAN_INFO_ENABLE:
-        *val=st->en;
+        *val = st->en;    
         return IIO_VAL_INT;
     default:
         return -EINVAL;
@@ -98,18 +180,107 @@ struct iio_adc_emu_state *st =iio_priv(indio_dev);
     return -EINVAL;
 }
 
+static int iio_adc_emu_write_raw(struct iio_dev *indio_dev,
+			struct iio_chan_spec const *chan,
+			int val,
+			int val2,
+			long mask)
+{
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+
+    switch (mask)
+    {
+    case IIO_CHAN_INFO_ENABLE:
+        st->en = val;
+        return 0;
+    default:
+        return -EINVAL;
+    }
+
+    return -EINVAL;
+}
+
+static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p)
+{
+    struct iio_poll_func *pf=p;
+    struct iio_dev *indio_dev= pf->indio_dev;
+    u16 buf[2];
+    int bit=0;
+    int ret;
+    u8 high;
+    u8 low;
+    int i=0;
+    struct iio_adc_emu_state *st=iio_priv(indio_dev);
+
+
+      ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_CNVST, IIO_ADC_EMU_CNVST_EN);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED conversion reg write IN HANDLER!");
+        return IRQ_HANDLED;
+    }
+
+
+
+    for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels)
+    {
+        ret= iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_HIGH(bit),&high);
+
+        if(ret){
+        dev_err(&st->spi->dev, "FAILED read high IN HANDLER!");
+        return IRQ_HANDLED;
+        }
+
+        ret= iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_LOW(bit),&low);
+
+        if(ret){
+        dev_err(&st->spi->dev, "FAILED read low IN HANDLER!");
+        return IRQ_HANDLED;
+        }
+
+    buf[i]= (high << 8) | low;
+    i++;
+    }
+
+
+
+    ret=iio_push_to_buffers(indio_dev, buf);
+
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED push to buffers!");
+        return IRQ_HANDLED;
+        }
+
+        iio_trigger_notify_done(indio_dev->trig);
+        return IRQ_HANDLED;
+}
+
+
+static int iio_adc_emu_debugfs(struct iio_dev *indio_dev,
+				  unsigned reg, unsigned writeval,
+				  unsigned *readval)
+{
+    struct iio_adc_emu_state *st = iio_priv(indio_dev);
+
+    if(readval)
+        return iio_adc_emu_spi_read(st, reg, (u8 *)readval);
+    
+    return iio_adc_emu_spi_write(st, reg, writeval);
+}
+
 static const struct iio_info iio_adc_emu_info = {
     .read_raw = &iio_adc_emu_read_raw,
-    .write_raw=&iio_adc_emu_write_raw,
+    .write_raw = &iio_adc_emu_write_raw,
+    .debugfs_reg_access = &iio_adc_emu_debugfs,
 };
 
  static int iio_adc_emu_probe(struct spi_device *spi)
  {
     struct iio_dev *indio_dev;
     struct iio_adc_emu_state *st;
-    //int ret;
+    int ret;
 
     indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*st));
+
     if(!indio_dev)
         return -ENOMEM; //Error -> No memory
 
@@ -118,10 +289,25 @@ static const struct iio_info iio_adc_emu_info = {
     indio_dev->channels = iio_adc_emu_chans;
     indio_dev->num_channels = ARRAY_SIZE(iio_adc_emu_chans);
 
-    st=iio_priv(indio_dev);
-    st->en=0;
-    st->chan0=0;
-    st->chan1=0;
+    st = iio_priv(indio_dev);
+    st->en = 0;
+
+    st->chan0 = 0;
+    st->chan1 = 0;
+    st->spi = spi;
+
+    ret=devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev,
+                                                    NULL,
+                                                    iio_adc_emu_trig_handler,
+                                                    IIO_BUFFER_DIRECTION_IN,
+                                                    NULL,
+                                                    NULL);
+    
+
+    ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0);
+    if(ret){
+        dev_err(&spi->dev, "FAILED writing POWERON reg");
+    }
 
     return devm_iio_device_register(&spi->dev, indio_dev);
  }
@@ -135,6 +321,6 @@ static const struct iio_info iio_adc_emu_info = {
 
  module_spi_driver(iio_adc_emu_driver);
 
-MODULE_AUTHOR("Risteiu Ioana");
+MODULE_AUTHOR("Zaicanu Raluca");
 MODULE_DESCRIPTION("Analog Devices IIO ADC EMU");
 MODULE_LICENSE("GPL v2");
