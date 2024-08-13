@@ -4,14 +4,20 @@
 #include <linux/bitfield.h>
 #include <asm/unaligned.h>
 
-#define IIO_ADC_EMU_READ_MASK       BIT(7)
-#define IIO_ADC_EMU_VALUE_MASK      GENMASK(7,0)
-#define IIO_ADC_ADDR_READ_MASK      GENMASK(6,0)
-#define IIO_ADC_ADDR_WRITE_MASK     GENMASK(14,8)
+#define IIO_ADC_EMU_READ_MASK           BIT(7)
+#define IIO_ADC_EMU_VALUE_MASK          GENMASK(7,0)
+#define IIO_ADC_ADDR_READ_MASK          GENMASK(6,0)
+#define IIO_ADC_ADDR_WRITE_MASK         GENMASK(14,8)
 
-/**
- * State structure
- */
+#define IIO_ADC_ADDR_REG_CNVST          0x3
+#define IIO_ADC_ADDR_REG_ENABLE         0x2
+#define IIO_ADC_ADDR_REG_CHAN_HIGH(x)   0x4 + x * 2
+#define IIO_ADC_ADDR_REG_CHAN_LOW(x)    0x5 + x * 2
+#define IIO_ADC_ADDR_REG_CHIP_ID        0x0
+
+#define IIO_ADC_START_CNVST_VAL         BIT(0)
+#define IIO_ADC_ENABLE_VAL              0x0
+
 struct adi_emu_state {
     bool enable;
     struct spi_device *spi;
@@ -19,9 +25,6 @@ struct adi_emu_state {
     int channel1;
 };
 
-/**
- *  Channels specification structure 
- */
 static const struct iio_chan_spec adi_emu_channels[] = {
     {
         .type = IIO_VOLTAGE,
@@ -38,78 +41,7 @@ static const struct iio_chan_spec adi_emu_channels[] = {
         .indexed = 1,
         .channel = 1,
     }};
- 
 
-/**
- * Function to read the raw value of the adi_emu channels
- * indio_dev    - the created iio-adi-emu device
- * chan         - the channels struct
- * val          - the whole part of the returned value
- * val1         - the fractional part of the returned value
- * mask         - the operation which will be performed
- * 
- * returns  IIO_VAL_INT and sets val to the enable value when mask is IIO_CHAN_INFO_ENABLE
- * returns   IIO_VAL_INT and sets the val to the channel number when mask is IIO_CHAN_INFO_RAW
- * returns   -EINVAL when the mask has unexpected value
- */
-static int adi_emu_read_raw(struct iio_dev *indio_dev,
-    struct iio_chan_spec const *chan,
-    int *val,
-    int *val2,
-    long mask) {
-        struct adi_emu_state *state = iio_priv(indio_dev);
-
-        switch (mask) {
-            case IIO_CHAN_INFO_ENABLE:
-                *val = state->enable;
-                return IIO_VAL_INT;
-            case IIO_CHAN_INFO_RAW:
-                *val = chan->channel;
-                return IIO_VAL_INT;
-            default:
-                // Error: Invalid value for mask
-                return -EINVAL;
-        }
-}
-
-/**
- * Function to write a raw value to the adi_emu channels
- * indio_dev    - the created iio-adi-emu device
- * chan         - the channels struct
- * val          - the whole part of the raw value
- * val1         - the fractional part of the raw value
- * mask         - the operation which will be performed
- * 
- * return 0 when the mask is IIO_CHAN_INFO_ENABLED
- * return -EINVAL when the mask has unexpected value
- */
-static int adi_emu_write_raw(struct iio_dev *indio_dev,
-    struct iio_chan_spec const *chan,
-    int val,
-    int val2,
-    long mask) {
-        struct adi_emu_state *state = iio_priv(indio_dev);
-        
-        switch (mask) {
-            case IIO_CHAN_INFO_RAW:
-                if (chan->channel) {
-                    state->channel1 = val;
-                } else {
-                    state->channel0 = val;
-                }
-                return IIO_VAL_INT;
-            case IIO_CHAN_INFO_ENABLE:
-                state->enable = val;
-                return IIO_VAL_INT;
-            default:
-                // Error: Invalid value for mask
-                return -EINVAL;
-        }
-}
-
-/**
- * Function to read one byte from adi_emu using SPI
- */
 static int adi_emu_spi_read(struct adi_emu_state *state,
     u8 reg_addr,
     u8 *read_val) {
@@ -137,9 +69,6 @@ static int adi_emu_spi_read(struct adi_emu_state *state,
         return 0;
 }
 
-/**
- * Function to write one byte to adi_emu using SPI
- */
 static int adi_emu_spi_write(struct adi_emu_state *state,
     u8 reg_addr,
     u8 write_val) {
@@ -167,6 +96,73 @@ static int adi_emu_spi_write(struct adi_emu_state *state,
         return 0;
 }
 
+static int adi_emu_read_channel(struct iio_dev *indio_dev, struct iio_chan_spec *chan, int *val) {
+    struct adi_emu_state *state = iio_priv(indio_dev);
+
+
+    int ret = adi_emu_spi_write(state, IIO_ADC_ADDR_REG_CNVST, IIO_ADC_START_CNVST_VAL);
+    if (ret) {
+        dev_err(&state->spi->dev, "Failed CNVST reg write");
+        return ret;
+    }
+
+    u8 valHigh, valLow = 0;
+    ret = adi_emu_spi_read(state, IIO_ADC_ADDR_REG_CHAN_HIGH(chan->channel), &valHigh);
+    if (ret) {
+        dev_err(&state->spi->dev, "Failed READ channel %d high reg", chan->channel);
+        return ret;
+    }
+
+    ret = adi_emu_spi_read(state, IIO_ADC_ADDR_REG_CHAN_LOW(chan->channel), &valLow);
+    if (ret) {
+        dev_err(&state->spi->dev, "Failed READ channel %d low reg", chan->channel);
+        return ret;
+    }
+
+    *val = (valHigh << 8) | valLow;
+    return 0;
+}
+
+static int adi_emu_read_raw(struct iio_dev *indio_dev,
+    struct iio_chan_spec const *chan,
+    int *val,
+    int *val2,
+    long mask) {
+        struct adi_emu_state *state = iio_priv(indio_dev);
+        int ret = 0;
+
+        switch (mask) {
+            case IIO_CHAN_INFO_ENABLE:
+                *val = state->enable;
+                return IIO_VAL_INT;
+            case IIO_CHAN_INFO_RAW:
+                ret = adi_emu_read_channel(indio_dev, chan, val);
+                if (ret) {
+                    dev_err(&state->spi->dev, "Failed READ raw");
+                    return ret;
+                }
+                return IIO_VAL_INT;
+            default:
+                return -EINVAL;
+        }
+}
+
+static int adi_emu_write_raw(struct iio_dev *indio_dev,
+    struct iio_chan_spec const *chan,
+    int val,
+    int val2,
+    long mask) {
+        struct adi_emu_state *state = iio_priv(indio_dev);
+
+        switch (mask) {
+            case IIO_CHAN_INFO_ENABLE:
+                state->enable = val;
+                return IIO_VAL_INT;
+            default:
+                return -EINVAL;
+        }
+}
+
 static int adi_emu_debugfx(struct iio_dev* indio_dev,
     unsigned reg_addr,
     unsigned write_val,
@@ -180,27 +176,19 @@ static int adi_emu_debugfx(struct iio_dev* indio_dev,
         }
 }
 
-/**
- * IIO_INFO structure
- */
 static const struct iio_info adi_emu_info = {
     .read_raw = &adi_emu_read_raw,
     .write_raw = &adi_emu_write_raw,
     .debugfs_reg_access = &adi_emu_debugfx,
 };
 
-/**
- * Probe function executed when the devicetree is parsed
- * parameter spi - the parent spi controller
- * returns 0 on success or negative number on error  
- */
 static int adi_emu_probe(struct spi_device *spi) {
     struct iio_dev *indio_dev;
     struct adi_emu_state *state;
 
     indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*state));
     if (!indio_dev) {
-        return -ENOMEM; // Error: Not enogh memory!
+        return -ENOMEM;
     }
 
     state = iio_priv(indio_dev);
@@ -212,13 +200,16 @@ static int adi_emu_probe(struct spi_device *spi) {
     indio_dev->channels = adi_emu_channels;
     indio_dev->num_channels = ARRAY_SIZE(adi_emu_channels);
 
+    int ret = adi_emu_spi_write(state, IIO_ADC_ADDR_REG_ENABLE, IIO_ADC_ENABLE_VAL);
+    if (ret) {
+        dev_err(&state->spi->dev, "Failed ENABLE");
+        return ret;
+    }
+    state->enable = true;
 
     return devm_iio_device_register(&spi->dev, indio_dev);
 }
 
-/**
- * Driver structure
- */
 static struct spi_driver adi_emu_driver =
 {
     .driver = {
