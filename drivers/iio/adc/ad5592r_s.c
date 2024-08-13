@@ -3,11 +3,15 @@
  * Copyright (C) 2024 Analog Devices, Inc.
  */
 
-#include <linux/spi/spi.h>
-#include <linux/module.h>
-#include <linux/iio/iio.h>
-#include <linux/bitfield.h>
 #include <asm/unaligned.h>
+#include <linux/bitfield.h>
+#include <linux/module.h>
+#include <linux/spi/spi.h>
+
+#include <linux/iio/buffer.h>
+#include <linux/iio/iio.h>
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
 
 #define AD5592R_S_REG_ADDR_MSK              GENMASK(14,11)
 #define AD5592R_S_WR_VAL_MSK                GENMASK( 8, 0)
@@ -44,6 +48,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 0,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 0,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
     {
         .type = IIO_VOLTAGE,
@@ -51,6 +61,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 1,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 1,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
      {
         .type = IIO_VOLTAGE,
@@ -58,6 +74,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 2,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 2,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
      {
         .type = IIO_VOLTAGE,
@@ -65,6 +87,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 3,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 3,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
      {
         .type = IIO_VOLTAGE,
@@ -72,6 +100,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 4,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 4,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     },
      {
         .type = IIO_VOLTAGE,
@@ -79,6 +113,12 @@ struct iio_chan_spec const iio_ad5592r_s_chans[] = {
         .channel = 5,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 5,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        },
     }
 };
 
@@ -96,7 +136,7 @@ static int ad5592r_s_spi_nop(struct iio_ad5592r_s_state *st, u16 *val)
     return spi_sync_transfer(st->spi, xfer, 1);
 }
 
-static int iio_ad5592r_s_read_chan(struct iio_ad5592r_s_state *st, struct iio_chan_spec const *chan, int *readval)
+static int iio_ad5592r_s_read_chan(struct iio_ad5592r_s_state *st, int channel, int *readval)
 {    
     u16 rx = 0;
     u16 tx = 0;
@@ -113,7 +153,7 @@ static int iio_ad5592r_s_read_chan(struct iio_ad5592r_s_state *st, struct iio_ch
     };
 
     msg |= FIELD_PREP(AD5592R_S_REG_ADDR_MSK, AD5592R_S_ADC_SEQ);
-    msg |= FIELD_PREP(AD5592R_S_CHAN_CONFIG_MSK, AD5592R_S_CHAN(chan->channel));
+    msg |= FIELD_PREP(AD5592R_S_CHAN_CONFIG_MSK, AD5592R_S_CHAN(channel));
 
     dev_info(&st->spi->dev, "READ CHAN : tx = 0x%X", msg);
     put_unaligned_be16(msg, &tx);
@@ -154,7 +194,7 @@ static int iio_ad5592r_s_read_raw(struct iio_dev *indio_dev,
     {
     case IIO_CHAN_INFO_RAW:
         if(st->en){
-            ret = iio_ad5592r_s_read_chan(st, chan, val);
+            ret = iio_ad5592r_s_read_chan(st, chan->channel, val);
             if(ret){
                 dev_err(&st->spi->dev, "FAILED reading data from channels!");
                 return ret;
@@ -323,6 +363,36 @@ static int ad5592r_s_adc_config(struct iio_ad5592r_s_state *st){
     return spi_sync_transfer(st->spi, xfer, 1);
 }
 
+static irqreturn_t iio_ad5592r_trig_handler(int irq, void *p)
+{
+    struct iio_poll_func *pf = p;
+    struct iio_dev *indio_dev = pf->indio_dev;
+    struct iio_ad5592r_s_state *st = iio_priv(indio_dev);
+
+    u16 buf[6];
+    int readval;
+    int bit = 0;
+    int i = 0;
+    int ret;
+
+    for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels){
+        ret = iio_ad5592r_s_read_chan(st, bit, &readval);
+        
+        buf[i] = readval;
+        i++;
+    }
+    
+    ret = iio_push_to_buffers(indio_dev, buf);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED push to buffers!");
+        return IRQ_HANDLED;
+    }
+
+    iio_trigger_notify_done(indio_dev->trig);
+
+    return IRQ_HANDLED;
+}
+
 static int ad5592r_s_debugfs(struct iio_dev *indio_dev,
 				  unsigned reg, unsigned writeval,
 				  unsigned *readval)
@@ -365,6 +435,13 @@ static int ad5592r_s_probe(struct spi_device *spi)
     st->chan4 = 0;
     st->chan5 = 0;
     st->spi = spi;
+
+    ret = devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev,
+                                            NULL,
+                                            iio_ad5592r_trig_handler,
+                                            IIO_BUFFER_DIRECTION_IN,
+                                            NULL,
+                                            NULL);
 
     ret = ad5592r_s_enable_power_ref(st);
     if(ret){
