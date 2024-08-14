@@ -6,8 +6,12 @@
 #include <asm/unaligned.h>
 #include <linux/spi/spi.h>
 #include <linux/module.h>
-#include <linux/iio/iio.h>
 #include <linux/bitfield.h>
+
+#include <linux/iio/buffer.h>
+#include <linux/iio/iio.h>
+#include <linux/iio/triggered_buffer.h>
+#include <linux/iio/trigger_consumer.h>
 
 #define AD5592R_S_WR_ADDR_MSK GENMASK(14,11)
 #define AD5592R_S_WR_DATA_MSK GENMASK(9,0)
@@ -37,6 +41,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 0, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 0,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
@@ -44,6 +54,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 1, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 1,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
@@ -51,6 +67,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 2, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 2,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
@@ -58,6 +80,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 3, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 3,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
@@ -65,6 +93,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 4, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 4,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     },
     {
         .type = IIO_VOLTAGE,
@@ -72,6 +106,12 @@ struct iio_chan_spec const ad5592r_s_chans[]={
         .channel = 5, //numar canal
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
         .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
+        .scan_index = 5,
+        .scan_type = {
+            .sign = 'u',
+            .realbits = 12,
+            .storagebits = 16,
+        }
     }
 };
 
@@ -238,7 +278,35 @@ static int ad5592r_s_write_raw(struct iio_dev *indio_dev,
     return -EINVAL;  
 }
 
+static irqreturn_t ad5592r_s_trig_handler(int irq, void *p)
+{
+    struct iio_poll_func *pf = p;
+    struct iio_dev *indio_dev = pf->indio_dev;
+    struct ad5592r_s_state *st = iio_priv(indio_dev);
+    u16 buf[6];
+    int bit = 0;
+    int i = 0;
+    int ret;
+    int res;
+    
+    for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels){
 
+        ret = ad5592r_s_read_chann(st,&indio_dev->channels[bit], &res);
+
+        buf[i] = res;
+        i++;
+    }
+
+    ret = iio_push_to_buffers(indio_dev, buf);
+    if(ret){
+        dev_err(&st->spi->dev, "FAILED push to buffer");
+        return IRQ_HANDLED;
+    }
+
+    iio_trigger_notify_done(indio_dev->trig);
+
+    return IRQ_HANDLED;
+}
 
 static int ad5592r_s_debugfs(struct iio_dev *indio_dev,
 				  unsigned reg, unsigned writeval,
@@ -278,6 +346,8 @@ static int ad5592r_s_probe(struct spi_device *spi)
     for(int i=0;i<6;i++)
         st->chan[i]=0;
     st->spi = spi;
+
+    ret = devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev, NULL, ad5592r_s_trig_handler, IIO_BUFFER_DIRECTION_IN, NULL, NULL);
 
     ret = ad5592r_s_spi_write(st, AD5592R_S_PD_REF_CTRL_ADR, AD5592R_S_PD_REF_CTRL_EN);
     if(ret){
