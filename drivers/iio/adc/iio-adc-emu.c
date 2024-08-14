@@ -226,7 +226,7 @@ static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p)
     if(ret)
     {
         dev_err(&st->spi->dev, "Failed CONVERSION reg write in handler");
-        return ret;
+        return IRQ_HANDLED;
     }
 
     for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels)
@@ -235,13 +235,13 @@ static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p)
         if(ret)
         {
             dev_err(&st->spi->dev, "Failed READ LOW in handler");
-            return ret;
+            return IRQ_HANDLED;
         }
         ret = iio_adc_emu_spi_read(st, IIO_ADC_EMU_REG_CHAN_HIGH(bit), &high);
         if(ret)
         {
             dev_err(&st->spi->dev, "Failed READ LOW in handler");
-            return ret;
+            return IRQ_HANDLED;
         }
         buf[i++]= (high << 8) | low;
     }
@@ -250,7 +250,7 @@ static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p)
     if(ret)
     {
         dev_err(&st->spi->dev, "Failed PUSH TO BUFFER in handler");
-        return ret;
+        return IRQ_HANDLED;
     }
 
     iio_trigger_notify_done(indio_dev->trig);
@@ -286,6 +286,11 @@ static int iio_adc_emu_probe ( struct spi_device *spi )
     st -> spi = spi;
 
     ret = devm_iio_triggered_buffer_setup_ext(&spi->dev, indio_dev, NULL, iio_adc_emu_trig_handler, IIO_BUFFER_DIRECTION_IN, NULL, NULL);
+    if(ret)
+    {
+        dev_err(&spi->dev, "Failed TRIG setup");
+        return ret;
+    }
 
     ret = iio_adc_emu_spi_write(st, IIO_ADC_EMU_REG_POWERON, 0);
     if(ret)
