@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /dts-v1/;
 
-#include "zynq-coraz7s.dtsi"
+//#include "zynq-coraz7s.dtsi"
+#include "zynq-cora7s-axi-pwm-led.dts"
 
 &spi0 {
     status = "okay";
