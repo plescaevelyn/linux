@@ -150,9 +150,7 @@ static int ad5592r_s_spi_read(struct ad5592r_s_state *st, u8 reg, u16 *readval)
 	tx |= AD5592R_S_RD_BACK_EN;
 	tx |= FIELD_PREP(AD5592R_S_ADDR_RD_BACK_REG_SEL, reg);
 
-	dev_info(&st->spi->dev, "tx = 0x%x\n", tx);
 	put_unaligned_be16(tx, &msg);
-	dev_info(&st->spi->dev, "msg = 0x%x\n", msg);
 
 	ret = spi_sync_transfer(st->spi, xfer, 1);
 
@@ -185,11 +183,7 @@ static int ad5592r_s_spi_write(struct ad5592r_s_state *st, u8 reg, u16 writeval)
 	tx = FIELD_PREP(AD5592R_S_ADDR_WR_MSK, reg) |
 	     FIELD_PREP(AD5592R_S_VAL_WR_MSK, writeval);
 
-	dev_info(&st->spi->dev, "tx = 0x%x\n", tx);
-
 	put_unaligned_be16(tx, &msg);
-
-	dev_info(&st->spi->dev, "msg = 0x%x\n", msg);
 
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
