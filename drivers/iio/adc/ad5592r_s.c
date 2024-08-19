@@ -169,10 +169,10 @@ static int ad5592rs_spi_write(struct ad5592rs_state *st, u8 reg, u16 writeVal) {
 	};
 
 	msg = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, reg) | FIELD_PREP(AD5592R_S_WR_VAL_MSK, writeVal);
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	//dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	//dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -190,10 +190,10 @@ static int ad5592rs_spi_enable_ref(struct ad5592rs_state *st, u16 writeVal) {
 	};
 
 	msg = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, AD5592R_S_CONF_ADC_PD_REF_REG) | FIELD_PREP(AD5592R_S_ADC_VAL_MSK, writeVal);
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	//dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	//dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -228,10 +228,10 @@ static int ad5592rs_spi_read(struct ad5592rs_state *st, u8 reg, u16 *readVal) {
 	msg |= FIELD_PREP(AD5592R_S_RDB_REG_SEL, reg);
 	msg |= FIELD_PREP(AD5592R_S_WR_ADDR_MSK, AD5592R_S_CONF_RDB_REG);
 
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	//dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	//dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	ret = spi_sync_transfer(st->spi, xfer, 1);
 	if(ret) {
@@ -327,7 +327,7 @@ static irqreturn_t iio_adc_emu_trig_handler(int irq, void *p){
     struct iio_poll_func *pf = p;
     struct iio_dev *indio_dev = pf->indio_dev;
     struct ad5592rs_state *st = iio_priv(indio_dev);
-    u16 buf[8];     //numarul de canale
+    u16 buf[8];
     int bit = 0;
     int ret;
     int i = 0;
