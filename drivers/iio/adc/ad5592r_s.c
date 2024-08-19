@@ -247,9 +247,9 @@ static int ad5592r_s_spi_write(struct iio_ad5592r_s_state *st,
     };
 
     msg = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, reg) | FIELD_PREP(AD5592R_S_WR_VAL_MSK, writeval);
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
     put_unaligned_be16(msg, &tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     return spi_sync_transfer(st->spi, xfer, 1);
 };
@@ -288,8 +288,8 @@ static int ad5592r_s_spi_read(struct iio_ad5592r_s_state *st,
     tx |= AD5592R_S_RDB_EN;
     tx |= FIELD_PREP(AD5592R_S_RDB_REG_SEL, reg);
     
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     put_unaligned_be16(tx, &msg);
     ret = spi_sync_transfer(st->spi, xfer, 1);
@@ -339,7 +339,7 @@ static int ad5592r_s_read_chan(struct iio_ad5592r_s_state *st,
         return ret;
     }
 
-    dev_info(&st->spi->dev, "tx = 0x%X", rx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", rx);
     *val = get_unaligned_be16(&rx);
     *val = *val & GENMASK(11,0);
     return 0;
