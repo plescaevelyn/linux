@@ -155,9 +155,9 @@ static int iio_ad5592r_s_read_chan(struct iio_ad5592r_s_state *st, int channel, 
     msg |= FIELD_PREP(AD5592R_S_REG_ADDR_MSK, AD5592R_S_ADC_SEQ);
     msg |= FIELD_PREP(AD5592R_S_CHAN_CONFIG_MSK, AD5592R_S_CHAN(channel));
 
-    dev_info(&st->spi->dev, "READ CHAN : tx = 0x%X", msg);
+    //dev_info(&st->spi->dev, "READ CHAN : tx = 0x%X", msg);
     put_unaligned_be16(msg, &tx);
-    dev_info(&st->spi->dev, "READ CHAN : msg = 0x%X", tx);
+    //dev_info(&st->spi->dev, "READ CHAN : msg = 0x%X", tx);
 
     ret = spi_sync_transfer(st->spi, xfer, 1);  
     if(ret){
@@ -278,9 +278,9 @@ static int ad5592r_s_spi_readback(struct iio_ad5592r_s_state *st, u8 reg, u16 *r
     msg |= FIELD_PREP(AD5592R_S_REG_ADDR_MSK, AD5592R_S_CONF_RDB_REG);
 
 
-    dev_info(&st->spi->dev, "tx = 0x%X", msg);
+    //dev_info(&st->spi->dev, "tx = 0x%X", msg);
     put_unaligned_be16(msg, &tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", tx);
+    //dev_info(&st->spi->dev, "msg = 0x%X", tx);
 
     ret = spi_sync_transfer(st->spi, xfer, 1);
 
@@ -314,9 +314,9 @@ static int ad5592r_s_spi_write(struct iio_ad5592r_s_state *st, u8 reg, u16 write
 
     tx = FIELD_PREP(AD5592R_S_REG_ADDR_MSK, reg) | FIELD_PREP(AD5592R_S_WR_VAL_MSK, writeval);
 
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
     put_unaligned_be16(tx, &msg);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
 
     return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -335,9 +335,9 @@ static int ad5592r_s_enable_power_ref(struct iio_ad5592r_s_state *st){
     msg |= FIELD_PREP(AD5592R_S_REG_ADDR_MSK ,AD5592R_S_PD_REF_CTRL);
     msg |= AD5592R_S_PD_EN;
 
-    dev_info(&st->spi->dev, "tx = 0x%X", msg);
+    //dev_info(&st->spi->dev, "tx = 0x%X", msg);
     put_unaligned_be16(msg, &tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", tx); 
+    //dev_info(&st->spi->dev, "msg = 0x%X", tx); 
 
     return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -356,9 +356,9 @@ static int ad5592r_s_adc_config(struct iio_ad5592r_s_state *st){
     msg |= FIELD_PREP(AD5592R_S_REG_ADDR_MSK, AD5592R_S_ADC_CONFIG);
     msg |= FIELD_PREP(AD5592R_S_CHAN_CONFIG_MSK, AD5592R_S_ADC_CHAN_INPUTS);
 
-    dev_info(&st->spi->dev, "tx = 0x%X", msg);
+    //dev_info(&st->spi->dev, "tx = 0x%X", msg);
     put_unaligned_be16(msg, &tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", tx); 
+    //dev_info(&st->spi->dev, "msg = 0x%X", tx); 
 
     return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -377,7 +377,11 @@ static irqreturn_t iio_ad5592r_trig_handler(int irq, void *p)
 
     for_each_set_bit(bit, indio_dev->active_scan_mask, indio_dev->num_channels){
         ret = iio_ad5592r_s_read_chan(st, bit, &readval);
-        
+        if(ret){
+            dev_err(&st->spi->dev, "FAILED push to read chan!");
+            iio_trigger_notify_done(indio_dev->trig);
+            return IRQ_HANDLED;
+        }
         buf[i] = readval;
         i++;
     }
@@ -385,6 +389,7 @@ static irqreturn_t iio_ad5592r_trig_handler(int irq, void *p)
     ret = iio_push_to_buffers(indio_dev, buf);
     if(ret){
         dev_err(&st->spi->dev, "FAILED push to buffers!");
+        iio_trigger_notify_done(indio_dev->trig);
         return IRQ_HANDLED;
     }
 
