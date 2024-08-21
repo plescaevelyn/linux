@@ -123,6 +123,7 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .indexed = 1,
         .channel = 6,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
         .scan_index = 6,
         .scan_type = {
             .sign = 'u',
@@ -135,6 +136,7 @@ struct iio_chan_spec const ad5592r_s_chans[] = {
         .indexed = 1,
         .channel = 7,
         .info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
+        .info_mask_shared_by_all = BIT(IIO_CHAN_INFO_ENABLE),
         .scan_index = 7,
         .scan_type = {
             .sign = 'u',
@@ -184,8 +186,9 @@ static int ad5592r_s_spi_read(struct ad5592r_s_state *st, u16 *readval, u8 reg) 
     //scriere preliminara pentru SPI pentru a putea face readback
     put_unaligned_be16(tx, &msg);
 
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info e costisitor ca timp si device-ul nu reuseste sa raspunda la timp pentru plot!!!!
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
 
     ret = spi_sync_transfer(st->spi, xfer, 1);
     if (ret) {
@@ -219,11 +222,11 @@ static int ad5592r_s_spi_write(struct ad5592r_s_state *st, u8 reg, u16 writeval)
     tx = FIELD_PREP(AD5592R_S_WRITE_ADDR_MSK, reg) | 
          FIELD_PREP(AD5592R_S_WRITE_DATA_MSK, writeval); 
 
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
 
     //little endian de la linux, dar trebuie sa primim datele ca big endian
     put_unaligned_be16(tx, &msg);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
 
     ret = spi_sync_transfer(st->spi, &xfer, 1);
     if (ret) {
@@ -262,7 +265,7 @@ static int ad5592r_s_read_chan(struct ad5592r_s_state *st, struct iio_chan_spec 
     put_unaligned_be16(rx, &temp);
     *val = FIELD_PREP(AD5592R_S_CONV_RES_MSK, temp);
 
-    dev_info(&st->spi->dev, "Conversion result = 0x%X", *val);
+    //dev_info(&st->spi->dev, "Conversion result = 0x%X", *val);
     return ret;
 }
 
@@ -372,17 +375,17 @@ static irqreturn_t ad5592r_s_trig_handler(int irq, void *p) {
         put_unaligned_be16(rx, &temp);
         buf[i++] = FIELD_PREP(AD5592R_S_CONV_RES_MSK, temp);
 
-        dev_info(&st->spi->dev, "Conversion result from trigger handler = 0x%X", buf[bit]);
+        //dev_info(&st->spi->dev, "Conversion result from trigger handler = 0x%X", buf[i-1]);
     }
 
     ret = iio_push_to_buffers(indio_dev, buf);
     if (ret) {
         dev_err(&st->spi->dev, "Failed to push to buffers in trigger handler");
+        iio_trigger_notify_done(indio_dev->trig);
         return IRQ_HANDLED;
     }
 
     iio_trigger_notify_done(indio_dev->trig);
-
     return IRQ_HANDLED;
 }
 
