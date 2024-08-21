@@ -180,11 +180,11 @@ static int ad5592r_s_spi_write(struct ad5592r_s_state *st, u8 reg, u16 writeval)
     };
 
     tx = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, reg) | FIELD_PREP(AD5592R_S_WR_VAL_MSK, writeval);
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
     
     
     put_unaligned_be16(tx,&msg);
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -210,11 +210,11 @@ static int ad5592r_s_spi_read(struct ad5592r_s_state *st, u8 reg, u16 *readval)
     tx |= AD5592R_S_RDB_ENABLE;
     tx |= FIELD_PREP(AD5592R_S_RDB_REG_SEL, reg);
 
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
 
     put_unaligned_be16(tx,&msg);
 
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     ret = spi_sync_transfer(st->spi,xfer,1);
     if(ret)
@@ -238,7 +238,7 @@ static int ad5592r_s_spi_read(struct ad5592r_s_state *st, u8 reg, u16 *readval)
 static int ad5592r_s_read_chan(struct iio_chan_spec const *chan, int *val
                                 ,struct ad5592r_s_state *st)
 {
-    dev_info(&st->spi->dev,"Trying to read channel %d....",chan->channel);
+    //dev_info(&st->spi->dev,"Trying to read channel %d....",chan->channel);
 
     u16 tx = 0;
     u16 rx = 0;
@@ -258,11 +258,11 @@ static int ad5592r_s_read_chan(struct iio_chan_spec const *chan, int *val
     u8 high = 0;
     u8 low = 0;
     
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+    //dev_info(&st->spi->dev, "tx = 0x%X", tx);
 
     put_unaligned_be16(tx,&msg);
 
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     ret = spi_sync_transfer(st->spi,xfer,1);
     if(ret)
@@ -287,13 +287,13 @@ static int ad5592r_s_read_chan(struct iio_chan_spec const *chan, int *val
     dev_alert(&st->spi->dev,"Second nop ended succesfully and returned %d",rx);
 
     *val = get_unaligned_be16(&rx);
-    dev_info(&st->spi->dev,"Got data %d",*val);
+    //dev_info(&st->spi->dev,"Got data %d",*val);
     
     low = (u8)(*val & 0xF);
     high = (u8)((*val>>8) & 0xF);
 
     u16 aux = (high<<8) | low;
-    dev_info(&st->spi->dev,"High is %d and low is %d and aux is %d",high,low,aux);
+    //dev_info(&st->spi->dev,"High is %d and low is %d and aux is %d",high,low,aux);
 
 
     return FIELD_PREP(AD5592R_S_ADC_DATA_RDB,*val);
@@ -303,7 +303,7 @@ static int ad5592r_s_adc_pin_conf(struct iio_chan_spec const *chan,struct ad5592
 {
     if(val)
     {
-        dev_info(&st->spi->dev,"Trying to enable channels...");
+        //dev_info(&st->spi->dev,"Trying to enable channels...");
 
         int ret = ad5592r_s_spi_write(st,AD5592R_S_CONF_ADC_REG,0xFF);
         if(ret)
@@ -314,7 +314,7 @@ static int ad5592r_s_adc_pin_conf(struct iio_chan_spec const *chan,struct ad5592
     }
     else
     {
-        dev_info(&st->spi->dev,"Trying to disable channels...");
+        //dev_info(&st->spi->dev,"Trying to disable channels...");
 
         int ret = ad5592r_s_spi_write(st,AD5592R_S_CONF_ADC_REG,0x0);
         if(ret)
@@ -386,7 +386,7 @@ static int ad5592r_s_write_raw (struct iio_dev *indio_dev,
                 dev_err(&st->spi->dev,"Failed spi write config reg for adc");
                 return ret;
             }
-            dev_info(&st->spi->dev,"Succsefully enabled the channels!");
+            //dev_info(&st->spi->dev,"Succsefully enabled the channels!");
             return 0;
         case IIO_CHAN_INFO_RAW:
             if (st->en) {
@@ -422,11 +422,11 @@ static int ad5592r_s_spi_en_ref(struct ad5592r_s_state *st)
     tx |= FIELD_PREP(AD5592R_S_WR_ADDR_MSK, AD5592R_S_CONF_REF_CTRL);
     tx |= AD5592R_S_EN_REF;
 
-    dev_info(&st->spi->dev, "tx = 0x%X", tx);
+   //dev_info(&st->spi->dev, "tx = 0x%X", tx);
 
     put_unaligned_be16(tx,&msg);
 
-    dev_info(&st->spi->dev, "msg = 0x%X", msg);
+    //dev_info(&st->spi->dev, "msg = 0x%X", msg);
     
     ret = spi_sync_transfer(st->spi,xfer,1);
     if(ret)
@@ -490,7 +490,7 @@ static irqreturn_t ad5592r_s_trig_handler(int irq, void *p) {
         put_unaligned_be16(rx, &temp);
         buf[i++] = FIELD_PREP(AD5592R_S_ADC_DATA_RDB, temp);
 
-        dev_info(&st->spi->dev, "Conversion result from trigger handler = 0x%X", buf[bit]);
+        //dev_info(&st->spi->dev, "Conversion result from trigger handler = 0x%X", buf[bit]);
     }
 
     ret = iio_push_to_buffers(indio_dev, buf);

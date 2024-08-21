@@ -1,0 +1,26 @@
+/dts-v1/;
+#include "zynq-coraz7s.dtsi"
+
+/ {
+	fpga_axi: fpga-axi@0 {
+		compatible = "simple-bus";
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+
+		axi_pwm_led: axi_pwm_led@44a00000 {
+			compatible = "adi,axi-pwm-led";
+			reg = <0x44a00000 0x10000>;
+		};
+	};
+};
+&spi0 {
+    status = "okay";
+    ad5592r_s@0 {
+        compatible="ad5592r_s";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		spi-cpol;
+    };
+};
+
