@@ -163,10 +163,10 @@ static int ad5592rs_spi_write(struct ad5592rs_state *st, u8 reg, u16 writeVal) {
 
 	msg = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, reg)
     | FIELD_PREP(AD5592R_S_WR_VAL_MSK, writeVal);
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	// dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	// dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -185,10 +185,10 @@ static int ad5592rs_spi_enable_ref(struct ad5592rs_state *st, u16 writeVal) {
 
 	msg = FIELD_PREP(AD5592R_S_WR_ADDR_MSK, AD5592R_S_CONF_ADC_PD_REF_REG) 
     | FIELD_PREP(AD5592R_S_ADC_VAL_MSK, writeVal);
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	// dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	// dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	return spi_sync_transfer(st->spi, xfer, 1);
 }
@@ -223,10 +223,10 @@ static int ad5592rs_spi_read(struct ad5592rs_state *st, u8 reg, u16 *readVal) {
 	msg |= FIELD_PREP(AD5592R_S_RDB_REG_SEL, reg);
 	msg |= FIELD_PREP(AD5592R_S_WR_ADDR_MSK, AD5592R_S_CONF_RDB_REG);
 
-	dev_info(&st->spi->dev, "msg:0x%x", msg);
+	// dev_info(&st->spi->dev, "msg:0x%x", msg);
 
 	put_unaligned_be16(msg, &tx);
-	dev_info(&st->spi->dev, "tx:0x%x", tx);
+	// dev_info(&st->spi->dev, "tx:0x%x", tx);
 
 	ret = spi_sync_transfer(st->spi, xfer, 1);
 	if(ret) {
@@ -364,6 +364,7 @@ static irqreturn_t ad5592r_s_trig_handler(int irq, void *p)
     ret = iio_push_to_buffers(indio_dev, buf);
     if (ret) {
             dev_err(&st->spi->dev, "FAILED push to buffers");
+			iio_trigger_notify_done(indio_dev->trig);
             return IRQ_HANDLED;
         }
     iio_trigger_notify_done(indio_dev->trig);
