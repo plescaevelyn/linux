@@ -288,16 +288,19 @@ static irqreturn_t iio_ad5592r_s_trig_handler(int irq, void *p)
 		if (ret) {
 			dev_err(&st->spi->dev,
 				"FAILED conversion reg write IN HANDLER!");
+			iio_trigger_notify_done(indio_dev->trig);
 			return IRQ_HANDLED;
 		}
 		ret = ad5592r_s_spi_nop(st, &rx);
 		if (ret) {
 			dev_err(&st->spi->dev, "Error at first nop");
+			iio_trigger_notify_done(indio_dev->trig);
 			return IRQ_HANDLED;
 		}
 		ret = ad5592r_s_spi_nop(st, &rx);
 		if (ret) {
 			dev_err(&st->spi->dev, "Error at second nop");
+			iio_trigger_notify_done(indio_dev->trig);
 			return IRQ_HANDLED;
 		}
 		temp = get_unaligned_be16(&rx);
@@ -309,6 +312,7 @@ static irqreturn_t iio_ad5592r_s_trig_handler(int irq, void *p)
 	ret = iio_push_to_buffers(indio_dev, buf);
 	if (ret) {
 		dev_err(&st->spi->dev, "FAILED push to buffers!");
+		iio_trigger_notify_done(indio_dev->trig);
 		return IRQ_HANDLED;
 	}
 
