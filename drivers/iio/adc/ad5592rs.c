@@ -310,6 +310,7 @@ static irqreturn_t ad5592rs_trig_handler(int irq, void *p)
 		if(ret)
     	{
     	    dev_err(&st->spi->dev, "Failed READ CHAN in handler");
+			iio_trigger_notify_done(indio_dev->trig);
     	    return IRQ_HANDLED;
     	}
 		buf[i++]=val;
@@ -319,6 +320,7 @@ static irqreturn_t ad5592rs_trig_handler(int irq, void *p)
     if(ret)
     {
         dev_err(&st->spi->dev, "Failed PUSH TO BUFFER in handler");
+		iio_trigger_notify_done(indio_dev->trig);
         return IRQ_HANDLED;
     }
 
