@@ -300,6 +300,7 @@ static irqreturn_t ad5592r_s_trig_handler(int irq, void *p)
     ret = iio_push_to_buffers(indio_dev, buf);
     if(ret){
         dev_err(&st->spi->dev, "FAILED push to buffer");
+        iio_trigger_notify_done(indio_dev->trig);
         return IRQ_HANDLED;
     }
 
