@@ -263,11 +263,11 @@ static irqreturn_t ad5592r_s_trigger_handler(int irq, void *p)
     if (ret)
     {
         dev_err(&st->spi->dev, "failed during pushing buffer to device");
+        iio_trigger_notify_done(indio_dev->trig);
         return IRQ_HANDLED;
     }
 
     iio_trigger_notify_done(indio_dev->trig);
-
     return IRQ_HANDLED;
 }
 
