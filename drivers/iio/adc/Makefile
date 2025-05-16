@@ -208,3 +208,4 @@ obj-$(CONFIG_SD_ADC_MODULATOR) += sd_adc_modulator.o
 obj-$(CONFIG_VERSAL_SYSMON_CORE) += versal-sysmon-core.o
 obj-$(CONFIG_VERSAL_SYSMON) += versal-sysmon.o
 obj-$(CONFIG_VERSAL_SYSMON_I2C) += versal-sysmon-i2c.o
+obj-$(CONFIG_IIO_ADI_EMU) += iio-adi-emu.o
