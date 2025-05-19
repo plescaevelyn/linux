@@ -1460,7 +1460,8 @@ dtb-$(CONFIG_ARCH_UNIPHIER) += \
 dtb-$(CONFIG_ARCH_VERSATILE) += \
 	versatile-ab.dtb \
 	versatile-ab-ib2.dtb \
-	versatile-pb.dtb
+	versatile-pb.dtb \
+	versatile-pb-adi-emu.dtb
 dtb-$(CONFIG_ARCH_VEXPRESS) += \
 	vexpress-v2p-ca5s.dtb \
 	vexpress-v2p-ca9.dtb \
