@@ -1,15 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0-or-later 
 /*
-* IIO Analog Devices, Inc. Emulator Driver
-*
-* Copyright (C) 2022 Analog Devices, Inc.
-*/
+ * IIO Analog Devices, Inc. Emulator Driver
+ *
+ * Copyright (C) 2022 Analog Devices, Inc.
+ */
  
 #include <asm/unaligned.h>
 #include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/iio/iio.h>
+ 
+#define ADI_EMU_REG_DEVICE_CONFIG   0x02
+#define  ADI_EMU_MASK_POWER_DOWN    BIT(5)
  
 #define ADI_EMU_RD_MASK         BIT(7)
 #define ADI_EMU_ADDR_MASK       GENMASK(14, 8)
@@ -103,11 +106,18 @@ static int adi_emu_write_raw(struct iio_dev *indio_dev,
                  long mask)
 {
     struct adi_emu_state *st = iio_priv(indio_dev);
+    int ret;
  
     switch (mask) {
     case IIO_CHAN_INFO_ENABLE:
+        if (val)
+            ret = adi_emu_spi_write(st, ADI_EMU_REG_DEVICE_CONFIG, 0);
+        else
+            ret = adi_emu_spi_write(st, ADI_EMU_REG_DEVICE_CONFIG,
+                        ADI_EMU_MASK_POWER_DOWN);
+ 
         st->enable = val;
-        return 0;
+        return ret;
     }
  
     return -EINVAL;
@@ -179,7 +189,7 @@ static struct spi_driver adi_emu_driver = {
     .probe = adi_emu_probe,
 };
 module_spi_driver(adi_emu_driver);
- 
+
 MODULE_AUTHOR("Evelyn Plesca <evelyn-iulia.plesca@analog.com>");
 MODULE_DESCRIPTION("IIO ADI Emulator Driver");
 MODULE_LICENSE("GPL v2");
